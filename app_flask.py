@@ -39,40 +39,20 @@ def get_binance_data(symbol, interval='1h', limit=1000):
         'limit': limit
     }
     response = requests.get(url, params=params)
-    print(f"[get_binance_data] Status code: {response.status_code}")
-    print(f"[get_binance_data] Response text: {response.text[:300]}")
-    try:
-        data = response.json()
-    except Exception as e:
-        print(f"[get_binance_data] Error parsing JSON: {e}")
-        data = []
-    if not isinstance(data, list) or len(data) == 0:
-        print(f"[get_binance_data] Data is not a list or empty. Data: {data}")
-        return pd.DataFrame()
+    data = response.json()
+    
     # Convert to DataFrame
     df = pd.DataFrame(data, columns=[
         'timestamp', 'open', 'high', 'low', 'close', 'volume',
         'close_time', 'quote_asset_volume', 'number_of_trades',
         'taker_buy_base_volume', 'taker_buy_quote_volume', 'ignore'
     ])
-    print(f"[get_binance_data] DataFrame shape: {df.shape}")
-    if df.empty:
-        print("[get_binance_data] DataFrame is empty after creation.")
-        return df
     df['timestamp'] = pd.to_datetime(df['timestamp'], unit='ms')
     df['close'] = df['close'].astype(float)
     df['open'] = df['open'].astype(float)
     df['high'] = df['high'].astype(float)
     df['low'] = df['low'].astype(float)
     df['volume'] = df['volume'].astype(float)
-    print(f"[get_binance_data] DataFrame head:\n{df.head(2)}")
-    # Lưu DataFrame ra file để kiểm tra dữ liệu thực tế
-    try:
-        debug_filename = f"binance_data_{symbol}_{interval}.csv"
-        df.to_csv(debug_filename, index=False, encoding='utf-8')
-        print(f"[get_binance_data] Saved DataFrame to {debug_filename}")
-    except Exception as e:
-        print(f"[get_binance_data] Error saving DataFrame to CSV: {e}")
     return df[['timestamp', 'open', 'high', 'low', 'close', 'volume']]
 
 
@@ -101,13 +81,6 @@ def get_settings():
     
 def calculate_indicators(df, coin, interval='1h'):
     """Tính toán chỉ báo kỹ thuật, điều chỉnh window theo interval."""
-    # Kiểm tra DataFrame rỗng hoặc thiếu cột 'close'
-    if df is None or df.empty:
-        print(f"[calculate_indicators] DataFrame is None or empty. df: {df}")
-        return df
-    if 'close' not in df.columns:
-        print(f"[calculate_indicators] DataFrame missing 'close' column. Columns: {df.columns}")
-        return df
     # Điều chỉnh window dựa trên interval
     rsi_window = 7 if interval in ['15m', '30m'] else 14
     sma_short_window = 5 if interval in ['15m', '30m'] else 10
@@ -380,26 +353,16 @@ def train_trend_model(df, save_model=True):
     """Huấn luyện mô hình ensemble với các đặc trưng bổ sung. Nếu save_model=False thì không lưu model."""
     import os
     import pickle
-
-    # Kiểm tra DataFrame rỗng hoặc thiếu cột 'close'
-    if df is None or df.empty:
-        print(f"[train_trend_model] DataFrame is None or empty. df: {df}")
-        return None, None, None
-    if 'close' not in df.columns:
-        print(f"[train_trend_model] DataFrame missing 'close' column. Columns: {df.columns}")
-        return None, None, None
-
     features = ['sma_short', 'sma_long', 'rsi', 'rsi_lag1', 'rsi_lag2', 'volume_sma', 'volume_trend', 
                 'volume_spike', 'obv', 'obv_price_divergence', 'rsi_price_divergence', 'macd', 
                 'signal_line', 'bb_upper', 'bb_lower', 'support', 'resistance', 'momentum', 
                 'price_change_lag1', 'stoch_k', 'stoch_d', 'williams_r', 'atr', 'roc', 'cci', 
                 'adx', 'tenkan_sen', 'kijun_sen', 'senkou_span_a', 'senkou_span_b']
-
+    
     df['price_change'] = (df['close'].shift(-1) > df['close']).astype(int)
 
     train_df = df[features + ['price_change']].dropna()
     if len(train_df) < 30:
-        print(f"[train_trend_model] train_df is too small after dropna. len(train_df): {len(train_df)}")
         return None, None, None
 
     X = train_df[features]
@@ -884,19 +847,16 @@ def analyze():
         return jsonify({'error': f'predict_trend: {str(e)}'}), 500
 
     try:
-        # Kiểm tra nếu DataFrame rỗng hoặc không đủ dòng
-        if df is None or len(df) == 0:
-            print(f"[analyze] DataFrame is None or empty after indicators/signals. df: {df}")
-            return jsonify({'error': 'Không đủ dữ liệu sau khi tính toán indicators/signals.'}), 400
-        print(f"[analyze] DataFrame shape before latest: {df.shape}")
-        print(f"[analyze] DataFrame tail:\n{df.tail(2)}")
         latest = df.iloc[-1]
         current_price = latest['close']
         total_score = latest['total_score']
+        
         # Tính toán reversal probability
         reversal_info = calculate_reversal_probability(df)
+        
         # Tính backtest results
         backtest_results = backtest_strategy(df)
+        
         if total_score >= 8:
             recommendation = "STRONG BUY"
         elif total_score >= 6:
