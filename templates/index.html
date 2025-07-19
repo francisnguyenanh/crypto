@@ -1,0 +1,1096 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Crypto Trading Analyzer</title>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-zoom@1.2.1/dist/chartjs-plugin-zoom.min.js"></script>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+    <style>
+        body {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+        }
+        
+        .main-container {
+            background: rgba(255, 255, 255, 0.95);
+            border-radius: 20px;
+            box-shadow: 0 15px 35px rgba(0, 0, 0, 0.1);
+            margin: 10px;
+            padding: 20px;
+        }
+        
+        @media (min-width: 768px) {
+            .main-container {
+                margin: 20px;
+                padding: 30px;
+            }
+        }
+        
+        .header {
+            text-align: center;
+            margin-bottom: 40px;
+        }
+        
+        .header h1 {
+            color: #333;
+            font-weight: 700;
+            text-shadow: 2px 2px 4px rgba(0, 0, 0, 0.1);
+            font-size: 2rem;
+        }
+        
+        @media (min-width: 768px) {
+            .header h1 {
+                font-size: 2.5rem;
+            }
+        }
+        
+        .trading-pair-selector {
+            background: #f8f9fa;
+            border-radius: 15px;
+            padding: 15px;
+            margin-bottom: 20px;
+            box-shadow: 0 5px 15px rgba(0, 0, 0, 0.08);
+        }
+        
+        @media (min-width: 768px) {
+            .trading-pair-selector {
+                padding: 25px;
+                margin-bottom: 30px;
+            }
+        }
+        
+        .risk-management {
+            background: #f8f9fa;
+            border-radius: 10px;
+            padding: 20px;
+            border-left: 4px solid #17a2b8;
+        }
+        
+        .form-control {
+            border-radius: 8px;
+            border: 2px solid #e9ecef;
+            transition: border-color 0.3s ease;
+        }
+        
+        .form-control:focus {
+            border-color: #007bff;
+            box-shadow: 0 0 0 0.2rem rgba(0, 123, 255, 0.25);
+        }
+        
+        .form-label {
+            font-weight: 600;
+            color: #495057;
+            margin-bottom: 8px;
+        }
+        
+        .pair-button {
+            background: linear-gradient(45deg, #4CAF50, #45a049);
+            border: none;
+            color: white;
+            padding: 12px 20px;
+            margin: 5px;
+            border-radius: 25px;
+            cursor: pointer;
+            font-size: 14px;
+            font-weight: 600;
+            transition: all 0.3s ease;
+            box-shadow: 0 4px 8px rgba(0, 0, 0, 0.2);
+            min-width: 120px;
+        }
+        
+        @media (min-width: 768px) {
+            .pair-button {
+                padding: 15px 25px;
+                margin: 10px;
+                font-size: 16px;
+                min-width: auto;
+            }
+        }
+        
+        .pair-button:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 6px 12px rgba(0, 0, 0, 0.3);
+        }
+        
+        .pair-button.active {
+            background: linear-gradient(45deg, #2196F3, #1976D2);
+        }
+        
+        .analyze-btn {
+            background: linear-gradient(45deg, #FF6B6B, #ee5a52);
+            border: none;
+            color: white;
+            padding: 12px 30px;
+            border-radius: 25px;
+            font-size: 16px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            box-shadow: 0 4px 8px rgba(0, 0, 0, 0.2);
+            margin-top: 15px;
+        }
+        
+        @media (min-width: 768px) {
+            .analyze-btn {
+                padding: 15px 40px;
+                font-size: 18px;
+                margin-top: 20px;
+            }
+        }
+        
+        .analyze-btn:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 6px 12px rgba(0, 0, 0, 0.3);
+        }
+
+        .analyze-btn:disabled,
+        .analyze-btn[disabled] {
+            opacity: 0.5;
+            cursor: not-allowed;
+            filter: grayscale(0.3);
+            box-shadow: none;
+            background: linear-gradient(45deg, #bdbdbd, #e0e0e0) !important;
+            color: #888 !important;
+            border: none;
+        }
+        
+        .loading {
+            display: none;
+            text-align: center;
+            margin: 30px 0;
+        }
+        
+        .spinner {
+            border: 4px solid #f3f3f3;
+            border-top: 4px solid #3498db;
+            border-radius: 50%;
+            width: 50px;
+            height: 50px;
+            animation: spin 1s linear infinite;
+            margin: 0 auto;
+        }
+        
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+        
+        .results {
+            display: none;
+            margin-top: 30px;
+        }
+        
+        .recommendation-card {
+            border-radius: 15px;
+            padding: 20px;
+            margin: 15px 0;
+            box-shadow: 0 5px 15px rgba(0, 0, 0, 0.1);
+            text-align: center;
+        }
+        
+        .recommendation-card h2 {
+            font-size: 1.8rem;
+            margin-bottom: 15px;
+        }
+        
+        .recommendation-card h3 {
+            font-size: 1.4rem;
+            margin-bottom: 10px;
+        }
+        
+        .recommendation-card h4 {
+            font-size: 1.2rem;
+            margin-bottom: 8px;
+        }
+        
+        .recommendation-card h5 {
+            font-size: 1rem;
+            margin-bottom: 5px;
+        }
+        
+        @media (min-width: 768px) {
+            .recommendation-card {
+                padding: 25px;
+                margin: 20px 0;
+            }
+            
+            .recommendation-card h2 {
+                font-size: 2.2rem;
+            }
+            
+            .recommendation-card h3 {
+                font-size: 1.8rem;
+            }
+            
+            .recommendation-card h4 {
+                font-size: 1.5rem;
+            }
+            
+            .recommendation-card h5 {
+                font-size: 1.2rem;
+            }
+        }
+        
+        .strong-buy { background: linear-gradient(45deg, #4CAF50, #45a049); color: white; }
+        .buy { background: linear-gradient(45deg, #8BC34A, #689F38); color: white; }
+        .hold { background: linear-gradient(45deg, #FFC107, #FF8F00); color: white; }
+        .sell { background: linear-gradient(45deg, #FF9800, #F57C00); color: white; }
+        .strong-sell { background: linear-gradient(45deg, #F44336, #D32F2F); color: white; }
+        
+        .risk-reward-info {
+            background: rgba(255, 255, 255, 0.2);
+            border-radius: 10px;
+            padding: 15px;
+            margin-top: 15px;
+        }
+        
+        .risk-reward-info h6 {
+            margin-bottom: 10px;
+            font-weight: 600;
+        }
+        
+        .risk-reward-info p {
+            margin-bottom: 5px;
+            font-size: 14px;
+        }
+        
+        .alert {
+            border-radius: 10px;
+            border: none;
+            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+        }
+        
+        .alert h6 {
+            margin-bottom: 10px;
+            font-weight: 600;
+        }
+        
+        .alert-success {
+            background: linear-gradient(45deg, #d4edda, #c3e6cb);
+            color: #155724;
+        }
+        
+        .alert-danger {
+            background: linear-gradient(45deg, #f8d7da, #f1b0b7);
+            color: #721c24;
+        }
+        
+        @media (min-width: 768px) {
+            .risk-reward-info p {
+                font-size: 16px;
+            }
+        }
+        
+        .indicators-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+            gap: 15px;
+            margin: 20px 0;
+        }
+        
+        @media (min-width: 768px) {
+            .indicators-grid {
+                grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+                gap: 20px;
+                margin: 30px 0;
+            }
+        }
+        
+        .indicator-card {
+            background: white;
+            border-radius: 10px;
+            padding: 15px;
+            box-shadow: 0 3px 10px rgba(0, 0, 0, 0.1);
+            text-align: center;
+            border-left: 4px solid #3498db;
+        }
+        
+        @media (min-width: 768px) {
+            .indicator-card {
+                padding: 20px;
+            }
+        }
+        
+        .indicator-value {
+            font-size: 18px;
+            font-weight: 700;
+            color: #2c3e50;
+            margin: 8px 0;
+        }
+        
+        @media (min-width: 768px) {
+            .indicator-value {
+                font-size: 24px;
+                margin: 10px 0;
+            }
+        }
+        
+        .indicator-label {
+            color: #7f8c8d;
+            font-size: 14px;
+            font-weight: 500;
+        }
+        
+        .chart-container {
+            background: white;
+            border-radius: 15px;
+            padding: 15px;
+            margin: 20px 0;
+            box-shadow: 0 5px 15px rgba(0, 0, 0, 0.1);
+        }
+        
+        @media (min-width: 768px) {
+            .chart-container {
+                padding: 25px;
+                margin: 30px 0;
+            }
+        }
+        
+        .model-info {
+            background: #e8f4fd;
+            border-left: 4px solid #2196F3;
+            padding: 15px;
+            border-radius: 10px;
+            margin: 15px 0;
+        }
+        
+        .trend-prediction {
+            background: #f0f8ff;
+            border-left: 4px solid #4CAF50;
+            padding: 15px;
+            border-radius: 10px;
+            margin: 15px 0;
+        }
+        
+        .error-message {
+            background: #ffebee;
+            color: #c62828;
+            border-left: 4px solid #f44336;
+            padding: 15px;
+            border-radius: 10px;
+            margin: 15px 0;
+        }
+        
+        @media (min-width: 768px) {
+            .model-info,
+            .trend-prediction,
+            .error-message {
+                padding: 20px;
+                margin: 20px 0;
+            }
+        }
+        
+        /* Touch-friendly styles for mobile */
+        @media (max-width: 767px) {
+            .pair-button,
+            .analyze-btn {
+                -webkit-tap-highlight-color: transparent;
+                touch-action: manipulation;
+            }
+            
+            .header h1 {
+                font-size: 1.8rem;
+            }
+            
+            .lead {
+                font-size: 0.9rem;
+            }
+            
+            .chart-container h4 {
+                font-size: 1.1rem;
+            }
+            
+            .indicator-label {
+                font-size: 12px;
+            }
+            
+            .trend-prediction p {
+                font-size: 18px !important;
+            }
+        }
+        
+        /* iPad specific styles */
+        @media (min-width: 768px) and (max-width: 1024px) {
+            .indicators-grid {
+                grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container-fluid">
+        <div class="main-container">            
+            <div class="trading-pair-selector">
+                <div class="row align-items-end mb-4">
+                    <div class="col-md-6 mb-2 mb-md-0">
+                        <select class="form-select form-control" id="tradingPairSelect">
+                            <option value="">-- // --</option>
+                            <option value="BTCJPY">BTC/JPY - Bitcoin</option>
+                            <option value="ETHJPY">ETH/JPY - Ethereum</option>
+                            <option value="XRPJPY">XRP/JPY - Ripple</option>
+                            <option value="ADAJPY">ADA/JPY - Cardano</option>
+                            <option value="SOLJPY">SOL/JPY - Solana</option>
+                            <!-- Removed DOT, AVAX -->
+                            <option value="MATICJPY">MATIC/JPY - Polygon</option>
+                            <option value="LINKJPY">LINK/JPY - Chainlink</option>
+                            <!-- Removed LTC -->
+                            <option value="XLMJPY">XLM/JPY - Stellar</option>
+                            <!-- Removed ATOM, NEAR, ALGO -->
+                            <option value="SUIJPY">SUI/JPY - Sui</option>
+                        </select>
+                    </div>
+                    <div class="col-md-6 text-md-end text-center mt-3 mt-md-0">
+                        <button class="analyze-btn me-2" onclick="analyzeSelectedPair()">
+                            <i class="fas fa-search"></i> Analyze
+                        </button>
+                        <button class="analyze-btn ms-0" onclick="suggestBestPairs()" style="background: linear-gradient(45deg, #9C27B0, #7B1FA2);">
+                            <i class="fas fa-lightbulb"></i> Suggest
+                        </button>
+                    </div>
+                </div>
+                <!-- Investment Amount -->
+                <div class="risk-management mt-4">
+                    <div class="row g-3 align-items-end">
+                        <div class="col-md-4 mb-3">
+                            <label for="investmentAmount" class="form-label">Vốn (¥)</label>
+<input type="text" class="form-control" id="investmentAmount" value="1,000,000" min="1,000" max="10,000,000" step="1,000" oninput="formatInvestmentAmount(); calculateProfitLoss()">
+
+                        </div>
+                        <div class="col-md-4 mb-3">
+                            <label for="takeProfit" class="form-label">Take Profit (%)</label>
+<input type="number" class="form-control" id="takeProfit" value="3" min="0.1" max="50" step="0.1" oninput="calculateProfitLoss()">
+
+                        </div>
+                        <div class="col-md-4 mb-3">
+                            <label for="stopLoss" class="form-label">Stop Loss (%)</label>
+<input type="number" class="form-control" id="stopLoss" value="1.5" min="0.1" max="20" step="0.1" oninput="calculateProfitLoss()">
+
+                        </div>
+                    </div>
+                    <!-- Profit/Loss Calculation Display -->
+                    <div class="row mt-3" id="profitLossDisplay" style="display: none;">
+                        <div class="col-md-6 mb-3">
+                            <div class="alert alert-success h-100 d-flex flex-column justify-content-center">
+                                <h6><i class="fas fa-arrow-up"></i> Lãi dự kiến</h6>
+                                <p class="mb-1"><strong>Số tiền lời:</strong> <span id="profitAmount">0</span> ¥</p>
+                                <p class="mb-0"><strong>Giá bán tại:</strong> <span id="profitPrice">0</span> ¥</p>
+                            </div>
+                        </div>
+                        <div class="col-md-6 mb-3">
+                            <div class="alert alert-danger h-100 d-flex flex-column justify-content-center">
+                                <h6><i class="fas fa-arrow-down"></i> Lỗ dự kiến</h6>
+                                <p class="mb-1"><strong>Số tiền lỗ:</strong> <span id="lossAmount">0</span> ¥</p>
+                                <p class="mb-0"><strong>Giá cắt lỗ tại:</strong> <span id="lossPrice">0</span> ¥</p>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                
+                <div class="text-center">
+                <!-- Buttons moved to row above -->
+            </div>
+            
+            <div class="loading">
+                <div class="spinner"></div>
+                <p class="mt-3">Analyzing market data and training AI models...</p>
+            </div>
+            
+            <div class="results">
+                <div id="recommendation-section"></div>
+                <div id="model-info-section"></div>
+                <div id="trend-prediction-section"></div>
+                <div id="indicators-section"></div>
+                <div id="charts-section"></div>
+            </div>
+            
+            <div id="error-section"></div>
+        </div>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/js/bootstrap.bundle.min.js"></script>
+    <script>
+        let selectedPair = null;
+        let priceChart = null;
+        let indicatorChart = null;
+        let currentPrice = 0;
+
+        // Disable Analyze button by default
+        document.addEventListener('DOMContentLoaded', function() {
+            const analyzeBtn = document.querySelector('.analyze-btn.me-2');
+            analyzeBtn.disabled = true;
+        });
+
+        // Handle pair selection from dropdown
+        document.getElementById('tradingPairSelect').addEventListener('change', function() {
+            selectedPair = this.value;
+            const analyzeBtn = document.querySelector('.analyze-btn.me-2');
+            if (selectedPair) {
+                analyzeBtn.disabled = false;
+                calculateProfitLoss();
+            } else {
+                analyzeBtn.disabled = true;
+            }
+        });
+
+        function formatInvestmentAmount() {
+            let input = document.getElementById('investmentAmount');
+            let value = input.value.replace(/,/g, '');
+            if (value === '') return;
+            let num = parseFloat(value);
+            if (isNaN(num)) {
+                input.value = '';
+                return;
+            }
+            input.value = num.toLocaleString('en-US');
+        }
+
+        function getInvestmentAmountRaw() {
+            let value = document.getElementById('investmentAmount').value.replace(/,/g, '');
+            return parseFloat(value) || 0;
+        }
+
+        function calculateProfitLoss() {
+            const investmentAmount = getInvestmentAmountRaw();
+            const takeProfitPct = parseFloat(document.getElementById('takeProfit').value) || 0;
+            const stopLossPct = parseFloat(document.getElementById('stopLoss').value) || 0;
+            if (investmentAmount > 0 && currentPrice > 0) {
+                // Calculate profit amounts
+                const profitAmount = investmentAmount * (takeProfitPct / 100);
+                const lossAmount = investmentAmount * (stopLossPct / 100);
+                // Calculate target prices
+                const profitPrice = currentPrice * (1 + takeProfitPct / 100);
+                const lossPrice = currentPrice * (1 - stopLossPct / 100);
+                // Update display with thousand separators
+                document.getElementById('profitAmount').textContent = new Intl.NumberFormat('ja-JP').format(Math.round(profitAmount));
+                document.getElementById('lossAmount').textContent = new Intl.NumberFormat('ja-JP').format(Math.round(lossAmount));
+                document.getElementById('profitPrice').textContent = Number(profitPrice).toLocaleString('ja-JP', { minimumFractionDigits: 1, maximumFractionDigits: 1 });
+                document.getElementById('lossPrice').textContent = Number(lossPrice).toLocaleString('ja-JP', { minimumFractionDigits: 1, maximumFractionDigits: 1 });
+                document.getElementById('profitLossDisplay').style.display = 'flex';
+            } else {
+                document.getElementById('profitLossDisplay').style.display = 'none';
+            }
+        }
+
+        function suggestBestPairs() {
+            // Validate required inputs
+            const investmentAmount = getInvestmentAmountRaw();
+            const takeProfit = parseFloat(document.getElementById('takeProfit').value) || 0;
+            const stopLoss = parseFloat(document.getElementById('stopLoss').value) || 0;
+            
+            if (investmentAmount <= 0) {
+                alert('Vui lòng nhập vốn đầu tư!');
+                return;
+            }
+            if (takeProfit <= 0) {
+                alert('Vui lòng nhập % lãi!');
+                return;
+            }
+            if (stopLoss <= 0) {
+                alert('Vui lòng nhập % lỗ!');
+                return;
+            }
+
+            document.querySelector('.loading').style.display = 'block';
+            document.querySelector('.loading p').textContent = 'Analyzing all trading pairs to find the best opportunities...';
+            document.querySelector('.results').style.display = 'none';
+            document.getElementById('error-section').innerHTML = '';
+
+            fetch('/suggest_best_pairs', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({ 
+                    take_profit: takeProfit,
+                    stop_loss: stopLoss,
+                    investment_amount: investmentAmount
+                })
+            })
+            .then(response => response.json())
+            .then(data => {
+                document.querySelector('.loading').style.display = 'none';
+                document.querySelector('.loading p').textContent = 'Analyzing market data and training AI models...';
+                
+                if (data.error) {
+                    showError(data.error);
+                } else {
+                    displaySuggestionResults(data);
+                }
+            })
+            .catch(error => {
+                document.querySelector('.loading').style.display = 'none';
+                document.querySelector('.loading p').textContent = 'Analyzing market data and training AI models...';
+                showError('Lỗi phân tích dữ liệu: ' + error.message);
+            });
+        }
+
+        function displaySuggestionResults(data) {
+            document.querySelector('.results').style.display = 'block';
+            
+            const investmentAmount = getInvestmentAmountRaw();
+            
+            // Display suggestion results
+            document.getElementById('recommendation-section').innerHTML = `
+                <div class="recommendation-card" style="background: linear-gradient(45deg, #9C27B0, #7B1FA2); color: white;">
+                    <h2><i class="fas fa-lightbulb"></i> Top 2 Đề xuất đầu tư</h2>
+                    <h4>Vốn đầu tư: ¥${new Intl.NumberFormat('ja-JP').format(investmentAmount)}</h4>
+                    <h5>Mục tiêu lãi: ${data.take_profit}% | Giới hạn lỗ: ${data.stop_loss}%</h5>
+                    
+                    <div class="row mt-4">
+                        <div class="col-md-6">
+                            <div class="alert alert-success">
+                                <h5><i class="fas fa-medal"></i> #1 ${data.suggestions[0].symbol}</h5>
+                                <p><strong>Giá hiện tại:</strong> ¥${new Intl.NumberFormat('ja-JP').format(data.suggestions[0].current_price)}</p>
+                                <p><strong>Khuyến nghị:</strong> ${data.suggestions[0].recommendation}</p>
+                                <p><strong>Điểm tín hiệu:</strong> ${data.suggestions[0].signal_score}</p>
+                                <p><strong>Độ tin cậy:</strong> ${data.suggestions[0].confidence}%</p>
+                                <p><strong>Số coin có thể mua:</strong> ${Number((investmentAmount/2 / data.suggestions[0].current_price).toFixed(6)).toLocaleString('en-US')} ${data.suggestions[0].symbol.replace('JPY', '')}</p>
+                                <p><strong>Lợi nhuận dự kiến:</strong> <span style="color: #28a745;">¥${new Intl.NumberFormat('ja-JP').format(Math.round((investmentAmount/2) * (data.take_profit / 100)))}</span></p>
+                                <p><strong>Giá bán tại:</strong> ¥${Number(data.suggestions[0].current_price * (1 + data.take_profit / 100)).toLocaleString('ja-JP', { minimumFractionDigits: 1, maximumFractionDigits: 1 })}</p>
+                            </div>
+                        </div>
+                        <div class="col-md-6">
+                            <div class="alert alert-info">
+                                <h5><i class="fas fa-award"></i> #2 ${data.suggestions[1].symbol}</h5>
+                                <p><strong>Giá hiện tại:</strong> ¥${new Intl.NumberFormat('ja-JP').format(data.suggestions[1].current_price)}</p>
+                                <p><strong>Khuyến nghị:</strong> ${data.suggestions[1].recommendation}</p>
+                                <p><strong>Điểm tín hiệu:</strong> ${data.suggestions[1].signal_score}</p>
+                                <p><strong>Độ tin cậy:</strong> ${data.suggestions[1].confidence}%</p>
+                                <p><strong>Số coin có thể mua:</strong> ${Number((investmentAmount/2 / data.suggestions[1].current_price).toFixed(6)).toLocaleString('en-US')} ${data.suggestions[1].symbol.replace('JPY', '')}</p>
+                                <p><strong>Lợi nhuận dự kiến:</strong> <span style="color: #17a2b8;">¥${new Intl.NumberFormat('ja-JP').format(Math.round((investmentAmount/2) * (data.take_profit / 100)))}</span></p>
+                                <p><strong>Giá bán tại:</strong> ¥${Number(data.suggestions[1].current_price * (1 + data.take_profit / 100)).toLocaleString('ja-JP', { minimumFractionDigits: 1, maximumFractionDigits: 1 })}</p>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <div class="alert alert-warning mt-3">
+                        <h6><i class="fas fa-info-circle"></i> Chiến lược đầu tư</h6>
+                        <p class="mb-1"><strong>Phân bổ vốn:</strong> Chia đều vốn cho 2 cặp (${new Intl.NumberFormat('ja-JP').format(investmentAmount/2)} ¥ mỗi cặp)</p>
+                        <p class="mb-1"><strong>Tổng lợi nhuận dự kiến:</strong> ¥${new Intl.NumberFormat('ja-JP').format(Math.round(investmentAmount * (data.take_profit / 100)))}</p>
+                        <p class="mb-0"><strong>Tổng rủi ro tối đa:</strong> ¥${new Intl.NumberFormat('ja-JP').format(Math.round(investmentAmount * (data.stop_loss / 100)))}</p>
+                    </div>
+                </div>
+            `;
+
+            // Clear other sections for suggestion view
+            document.getElementById('model-info-section').innerHTML = '';
+            document.getElementById('trend-prediction-section').innerHTML = '';
+            document.getElementById('indicators-section').innerHTML = '';
+            document.getElementById('charts-section').innerHTML = '';
+        }
+
+        function analyzeSelectedPair() {
+            if (!selectedPair) {
+                alert('Vui lòng chọn cặp tiền tệ trước!');
+                return;
+            }
+
+            const takeProfit = parseFloat(document.getElementById('takeProfit').value) || 5;
+            const stopLoss = parseFloat(document.getElementById('stopLoss').value) || 3;
+            const investmentAmount = parseFloat(document.getElementById('investmentAmount').value) || 0;
+
+            document.querySelector('.loading').style.display = 'block';
+            document.querySelector('.results').style.display = 'none';
+            document.getElementById('error-section').innerHTML = '';
+
+            fetch('/analyze', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({ 
+                    symbol: selectedPair,
+                    take_profit: takeProfit,
+                    stop_loss: stopLoss,
+                    investment_amount: investmentAmount
+                })
+            })
+            .then(response => response.json())
+            .then(data => {
+                document.querySelector('.loading').style.display = 'none';
+                
+                if (data.error) {
+                    showError(data.error);
+                } else {
+                    currentPrice = data.current_price;
+                    calculateProfitLoss();
+                    displayResults(data);
+                }
+            })
+            .catch(error => {
+                document.querySelector('.loading').style.display = 'none';
+                showError('Lỗi phân tích dữ liệu: ' + error.message);
+            });
+        }
+
+        function showError(message) {
+            document.getElementById('error-section').innerHTML = `
+                <div class="error-message">
+                    <h5><i class="fas fa-exclamation-triangle"></i> Error</h5>
+                    <p>${message}</p>
+                </div>
+            `;
+        }
+
+        function displayResults(data) {
+            document.querySelector('.results').style.display = 'block';
+            
+            const investmentAmount = getInvestmentAmountRaw();
+            // Recommendation section
+            const recClass = data.recommendation.toLowerCase().replace(' ', '-');
+            // Format local datetime
+            let localTime = '';
+            if (data.last_timestamp) {
+                const d = new Date(data.last_timestamp);
+                localTime = d.toLocaleString();
+            }
+            document.getElementById('recommendation-section').innerHTML = `
+                <div class="recommendation-card ${recClass}">
+                    <h2><i class="fas fa-bullseye"></i> ${data.risk_reward.adjusted_recommendation || data.recommendation}</h2>
+                    <h5>Dữ liệu mới nhất: ${localTime}</h5>
+                    <h4>Giá hiện tại: ¥${new Intl.NumberFormat('ja-JP').format(data.current_price)}</h4>
+                    <h5>Điểm tín hiệu: ${data.signal_score}</h5>
+                    ${data.risk_reward.advice ? `
+                        <div class="alert alert-info mt-3">
+                            <h6><i class="fas fa-info-circle"></i> Lời khuyên cụ thể</h6>
+                            <p class="mb-0">${data.risk_reward.advice}</p>
+                        </div>
+                    ` : ''}
+                    ${investmentAmount > 0 ? `
+                        <div class="risk-reward-info mt-3">
+                            <p><strong>Số coin có thể mua:</strong> ${Number((investmentAmount / data.current_price).toFixed(6)).toLocaleString('en-US')} ${data.symbol.replace('JPY', '')}</p>
+                        </div>
+                    ` : ''}
+                </div>
+            `;
+
+            // Model info section
+            document.getElementById('model-info-section').innerHTML = `
+                <div class="model-info">
+                    <h5><i class="fas fa-robot"></i> Hiệu suất mô hình AI</h5>
+                    <p><strong>Loại mô hình:</strong> ${data.model_info.type}</p>
+                    <p><strong>Độ chính xác:</strong> ${(data.model_info.accuracy * 100).toFixed(1)}%</p>
+                </div>
+            `;
+
+            // Trend prediction section
+            const trendIcon = data.trend_prediction === 'Up' ? 'fa-arrow-up' : 'fa-arrow-down';
+            const trendColor = data.trend_prediction === 'Up' ? '#4CAF50' : '#F44336';
+            const trendText = data.trend_prediction === 'Up' ? 'Tăng' : 'Giảm';
+            document.getElementById('trend-prediction-section').innerHTML = `
+                <div class="trend-prediction">
+                    <h5><i class="fas fa-crystal-ball"></i> Dự đoán xu hướng</h5>
+                    <p style="color: ${trendColor}; font-size: 24px; font-weight: bold;">
+                        <i class="fas ${trendIcon}"></i> ${trendText} 
+                        (${data.confidence}% độ tin cậy)
+                    </p>
+                </div>
+            `;
+
+            // Indicators section
+            document.getElementById('indicators-section').innerHTML = `
+                <h4 class="text-center mb-3 mb-md-4"><i class="fas fa-chart-bar"></i> Chỉ báo kỹ thuật</h4>
+                <div class="indicators-grid">
+                    <div class="indicator-card">
+                        <div class="indicator-label">RSI</div>
+                        <div class="indicator-value">${data.indicators.rsi}</div>
+                    </div>
+                    <div class="indicator-card">
+                        <div class="indicator-label">RSI Lag1</div>
+                        <div class="indicator-value">${data.indicators.rsi_lag1}</div>
+                    </div>
+                    <div class="indicator-card">
+                        <div class="indicator-label">MACD</div>
+                        <div class="indicator-value">${data.indicators.macd}</div>
+                    </div>
+                    <div class="indicator-card">
+                        <div class="indicator-label">OBV</div>
+                        <div class="indicator-value">${data.indicators.obv}</div>
+                    </div>
+                    <div class="indicator-card">
+                        <div class="indicator-label">Stochastic K</div>
+                        <div class="indicator-value">${data.indicators.stoch_k}</div>
+                    </div>
+                    <div class="indicator-card">
+                        <div class="indicator-label">Williams %R</div>
+                        <div class="indicator-value">${data.indicators.williams_r}</div>
+                    </div>
+                    <div class="indicator-card">
+                        <div class="indicator-label">ROC</div>
+                        <div class="indicator-value">${data.indicators.roc}%</div>
+                    </div>
+                    <div class="indicator-card">
+                        <div class="indicator-label">CCI</div>
+                        <div class="indicator-value">${data.indicators.cci}</div>
+                    </div>
+                    <div class="indicator-card">
+                        <div class="indicator-label">ADX</div>
+                        <div class="indicator-value">${data.indicators.adx}</div>
+                    </div>
+                    <div class="indicator-card">
+                        <div class="indicator-label">Support</div>
+                        <div class="indicator-value">¥${data.indicators.support}</div>
+                    </div>
+                    <div class="indicator-card">
+                        <div class="indicator-label">Resistance</div>
+                        <div class="indicator-value">¥${data.indicators.resistance}</div>
+                    </div>
+                    <div class="indicator-card">
+                        <div class="indicator-label">Momentum</div>
+                        <div class="indicator-value">${data.indicators.momentum}%</div>
+                    </div>
+                    <div class="indicator-card">
+                        <div class="indicator-label">Sentiment</div>
+                        <div class="indicator-value">${data.indicators.sentiment}</div>
+                    </div>
+                    <div class="indicator-card">
+                        <div class="indicator-label">Volume Trend</div>
+                        <div class="indicator-value" style="font-size: 14px;">${data.indicators.volume_trend}</div>
+                    </div>
+                </div>
+            `;
+
+            // Charts section
+            displayCharts(data.chart_data, data.symbol);
+        }
+
+        function displayCharts(chartData, symbol) {
+            document.getElementById('charts-section').innerHTML = `
+                <div class="chart-container">
+                    <h4 class="text-center mb-3 mb-md-4"><i class="fas fa-chart-line"></i> Price Chart with Technical Analysis</h4>
+                    <div style="position: relative; height: 300px;">
+                        <canvas id="priceChart"></canvas>
+                    </div>
+                </div>
+                <div class="chart-container">
+                    <h4 class="text-center mb-3 mb-md-4"><i class="fas fa-chart-area"></i> RSI, Volume & OBV</h4>
+                    <div style="position: relative; height: 250px;">
+                        <canvas id="indicatorChart"></canvas>
+                    </div>
+                </div>
+            `;
+
+            // Convert UTC timestamps to local time strings
+            const localLabels = chartData.timestamps.map(ts => {
+                // Try to parse as ISO string or as timestamp
+                let d = (typeof ts === 'number') ? new Date(ts) : new Date(ts);
+                if (isNaN(d.getTime())) {
+                    // fallback: try parsing as seconds
+                    d = new Date(Number(ts) * 1000);
+                }
+                return d.toLocaleString();
+            });
+
+            // Destroy existing charts
+            if (priceChart) priceChart.destroy();
+            if (indicatorChart) indicatorChart.destroy();
+
+            // Price chart with Bollinger Bands
+            const ctx1 = document.getElementById('priceChart').getContext('2d');
+            priceChart = new Chart(ctx1, {
+                type: 'line',
+                data: {
+                    labels: localLabels,
+                    datasets: [
+                        {
+                            label: 'Price (JPY)',
+                            data: chartData.prices,
+                            borderColor: '#2196F3',
+                            backgroundColor: 'rgba(33, 150, 243, 0.1)',
+                            borderWidth: 2,
+                            fill: false
+                        },
+                        {
+                            label: 'SMA Short (10)',
+                            data: chartData.sma_short,
+                            borderColor: '#4CAF50',
+                            borderWidth: 1,
+                            fill: false
+                        },
+                        {
+                            label: 'SMA Long (50)',
+                            data: chartData.sma_long,
+                            borderColor: '#FF9800',
+                            borderWidth: 1,
+                            fill: false
+                        },
+                        {
+                            label: 'BB Upper',
+                            data: chartData.bb_upper,
+                            borderColor: 'rgba(156, 39, 176, 0.5)',
+                            borderWidth: 1,
+                            fill: false,
+                            borderDash: [5, 5]
+                        },
+                        {
+                            label: 'BB Lower',
+                            data: chartData.bb_lower,
+                            borderColor: 'rgba(156, 39, 176, 0.5)',
+                            borderWidth: 1,
+                            fill: false,
+                            borderDash: [5, 5]
+                        }
+                    ]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: {
+                        title: {
+                            display: true,
+                            text: `${symbol} Price Analysis`
+                        },
+                        legend: {
+                            display: true,
+                            position: 'top',
+                            labels: {
+                                boxWidth: 12,
+                                padding: 10
+                            }
+                        },
+                        zoom: {
+                            pan: {
+                                enabled: true,
+                                mode: 'xy',
+                                modifierKey: 'ctrl',
+                            },
+                            zoom: {
+                                wheel: {
+                                    enabled: true,
+                                },
+                                pinch: {
+                                    enabled: true
+                                },
+                                mode: 'xy',
+                            }
+                        }
+                    },
+                    scales: {
+                        y: {
+                            title: {
+                                display: true,
+                                text: 'Price (JPY)'
+                            }
+                        },
+                        x: {
+                            title: {
+                                display: true,
+                                text: 'Time (Local)'
+                            }
+                        }
+                    }
+                }
+            });
+
+            // RSI, Volume and OBV chart
+            const ctx2 = document.getElementById('indicatorChart').getContext('2d');
+            indicatorChart = new Chart(ctx2, {
+                type: 'line',
+                data: {
+                    labels: localLabels,
+                    datasets: [
+                        {
+                            label: 'RSI',
+                            data: chartData.rsi,
+                            borderColor: '#E91E63',
+                            backgroundColor: 'rgba(233, 30, 99, 0.1)',
+                            borderWidth: 2,
+                            yAxisID: 'y',
+                            fill: false
+                        },
+                        {
+                            label: 'Volume',
+                            data: chartData.volumes,
+                            type: 'bar',
+                            backgroundColor: 'rgba(96, 125, 139, 0.3)',
+                            borderColor: '#607D8B',
+                            borderWidth: 1,
+                            yAxisID: 'y1'
+                        },
+                        {
+                            label: 'OBV',
+                            data: chartData.obv,
+                            borderColor: '#FF9800',
+                            backgroundColor: 'rgba(255, 152, 0, 0.1)',
+                            borderWidth: 2,
+                            yAxisID: 'y2',
+                            fill: false
+                        }
+                    ]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: {
+                        title: {
+                            display: true,
+                            text: 'RSI, Volume & OBV Indicators'
+                        },
+                        legend: {
+                            display: true,
+                            labels: {
+                                boxWidth: 12,
+                                padding: 10
+                            }
+                        },
+                        zoom: {
+                            pan: {
+                                enabled: true,
+                                mode: 'xy',
+                                modifierKey: 'ctrl',
+                            },
+                            zoom: {
+                                wheel: {
+                                    enabled: true,
+                                },
+                                pinch: {
+                                    enabled: true
+                                },
+                                mode: 'xy',
+                            }
+                        }
+                    },
+                    scales: {
+                        y: {
+                            type: 'linear',
+                            position: 'left',
+                            title: {
+                                display: true,
+                                text: 'RSI'
+                            },
+                            min: 0,
+                            max: 100
+                        },
+                        y1: {
+                            type: 'linear',
+                            position: 'right',
+                            title: {
+                                display: true,
+                                text: 'Volume'
+                            },
+                            grid: {
+                                drawOnChartArea: false,
+                            }
+                        },
+                        y2: {
+                            type: 'linear',
+                            position: 'right',
+                            title: {
+                                display: true,
+                                text: 'OBV'
+                            },
+                            grid: {
+                                drawOnChartArea: false,
+                            }
+                        }
+                    }
+                }
+            });
+        }
+    </script>
+</body>
+</html>
