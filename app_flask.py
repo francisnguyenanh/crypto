@@ -4,6 +4,9 @@ import numpy as np
 import requests
 from datetime import datetime, timedelta
 import time
+import os
+import json
+import pickle
 from textblob import TextBlob
 from sklearn.linear_model import LogisticRegression
 from sklearn.preprocessing import StandardScaler
@@ -12,28 +15,24 @@ from sklearn.svm import SVC
 from sklearn.metrics import accuracy_score
 from sklearn.model_selection import train_test_split, cross_val_score
 import xgboost as xgb
-import json
 
 app = Flask(__name__)
 
 
 def get_limit_for_interval(interval):
-    """Chọn limit phù hợp với interval để phân tích đúng khung thời gian."""
-    if interval in ['15m', '30m']:
-        return 500   # ~10 ngày
-    elif interval == '1h':
-        return 300   # ~12 ngày
-    elif interval == '4h':
-        return 200   # ~33 ngày
-    elif interval == '1d':
-        return 500   # ~1.5 năm
-    elif interval == '1w':
-        return 200   # ~4 năm
-    else:
-        return 300   # mặc định
+    """Chọn limit tối ưu cho từng interval để phân tích đúng khung thời gian."""
+    interval_limits = {
+        '15m': 1000,  # ~10.4 ngày
+        '30m': 1000,  # ~20.8 ngày
+        '1h': 1000,   # ~41.7 ngày
+        '4h': 1000,   # ~166.7 ngày (~5.5 tháng)
+        '1d': 1500,   # ~4.1 năm
+        '1w': 200     # ~4 năm
+    }
+    return interval_limits.get(interval, 1000)  # Mặc định 1000 nếu interval không xác định
     
-def get_binance_data(symbol, interval='1h', limit=500):
-    """Fetch historical klines from Binance public API."""
+def get_binance_data(symbol, interval='1h', limit=1000):
+    """Lấy dữ liệu lịch sử từ Binance API."""
     url = "https://api.binance.com/api/v3/klines"
     params = {
         'symbol': symbol,
@@ -57,24 +56,22 @@ def get_binance_data(symbol, interval='1h', limit=500):
     df['volume'] = df['volume'].astype(float)
     return df[['timestamp', 'open', 'high', 'low', 'close', 'volume']]
 
-def get_mock_sentiment(coin):
-    """Mock sentiment analysis for the given coin."""
-    import random
+def get_sentiment(coin):
+    """Phân tích tâm lý từ dữ liệu giả lập (thay thế cho dữ liệu X)."""
     mock_posts = {
-        'BTC': ["Bitcoin bullish trend!", "BTC consolidating", "Institutional buying BTC"],
-        'ETH': ["Ethereum 2.0 upgrade!", "ETH DeFi growth", "Smart contracts booming"],
-        'XRP': ["XRP to the moon!", "Bearish on XRP, dumping soon", "XRP looks stable"],
-        'ADA': ["Cardano smart contracts!", "ADA staking rewards", "Slow development"],
-        'SOL': ["Solana fast transactions!", "SOL ecosystem growing", "Network congestion issues"],
-        'MATIC': ["Polygon scaling solution!", "MATIC partnerships", "Layer 2 adoption"],
-        'LINK': ["Chainlink oracles essential!", "LINK price feeds", "Oracle network"],
-        'XLM': ["Stellar cross-border payments!", "XLM partnership with banks", "Remittance solution"],
-        'SUI': ["SUI is breaking out!", "New blockchain technology", "Object-centric design"]
+        'BTC': ["Bitcoin bullish!", "BTC may correct soon.", "Institutional buying in BTC!"],
+        'ETH': ["Ethereum upgrade success!", "ETH DeFi is booming!", "ETH gas fees high."],
+        'XRP': ["XRP legal win!", "Bearish on XRP.", "XRP stable."],
+        'ADA': ["Cardano smart contracts live!", "ADA slow development.", "ADA staking rewards."],
+        'SOL': ["Solana fastest blockchain!", "SOL network issues.", "SOL ecosystem growing."],
+        'MATIC': ["Polygon scaling!", "MATIC new partnerships!", "Layer 2 adoption."],
+        'LINK': ["Chainlink oracles critical!", "LINK price feeds stable.", "LINK adoption growing."],
+        'XLM': ["Stellar for payments!", "XLM banking partnerships.", "XLM undervalued."],
+        'SUI': ["SUI breakout!", "SUI new tech promising.", "SUI early adoption."]
     }
-    posts = mock_posts.get(coin, ["Neutral comment"])
+    posts = mock_posts.get(coin, ["Neutral sentiment."])
     scores = [TextBlob(post).sentiment.polarity for post in posts]
-    avg_score = sum(scores) / len(scores)
-    return avg_score
+    return sum(scores) / len(scores)
 
 
 @app.route('/get_settings', methods=['GET'])
@@ -88,7 +85,8 @@ def get_settings():
                 'interval': '1h',
                 'investment_amount': 1000000,
                 'take_profit': 3.0,
-                'stop_loss': 1.5
+                'stop_loss': 1.5,
+                'save_model': True
             }
         else:
             with open('user_settings.txt', 'r', encoding='utf-8') as f:
@@ -98,16 +96,21 @@ def get_settings():
         return jsonify({'error': str(e)}), 500
     
     
-def calculate_indicators(df, coin):
-    """Calculate technical indicators and sentiment."""
+def calculate_indicators(df, coin, interval='1h'):
+    """Tính toán chỉ báo kỹ thuật, điều chỉnh window theo interval."""
+    # Điều chỉnh window dựa trên interval
+    rsi_window = 7 if interval in ['15m', '30m'] else 14
+    sma_short_window = 5 if interval in ['15m', '30m'] else 10
+    sma_long_window = 20 if interval in ['15m', '30m'] else 50 if interval in ['1h', '4h'] else 100
+
     # SMA
-    df['sma_short'] = df['close'].rolling(window=10).mean()
-    df['sma_long'] = df['close'].rolling(window=50).mean()
+    df['sma_short'] = df['close'].rolling(window=sma_short_window).mean()
+    df['sma_long'] = df['close'].rolling(window=sma_long_window).mean()
     
     # RSI
     delta = df['close'].diff()
-    gain = (delta.where(delta > 0, 0)).rolling(window=14).mean()
-    loss = (-delta.where(delta < 0, 0)).rolling(window=14).mean()
+    gain = (delta.where(delta > 0, 0)).rolling(window=rsi_window).mean()
+    loss = (-delta.where(delta < 0, 0)).rolling(window=rsi_window).mean()
     rs = gain / loss
     df['rsi'] = 100 - (100 / (1 + rs))
     
@@ -115,13 +118,26 @@ def calculate_indicators(df, coin):
     df['rsi_lag1'] = df['rsi'].shift(1)
     df['rsi_lag2'] = df['rsi'].shift(2)
     
-    # Volume SMA and trend
+    # Volume SMA và xu hướng
     df['volume_sma'] = df['volume'].rolling(window=10).mean()
     df['volume_trend'] = np.where(df['volume_sma'] > df['volume_sma'].shift(1), 1, 0)
+    
+    # Volume Spike
+    df['volume_spike'] = np.where(df['volume'] > df['volume_sma'] * 1.5, 1, 0)
     
     # On-Balance Volume (OBV)
     df['obv'] = (np.sign(df['close'].diff()) * df['volume']).cumsum()
     df['obv'] = df['obv'].fillna(0)
+    
+    # Phân kỳ OBV-Giá
+    df['obv_price_divergence'] = 0
+    df.loc[(df['close'].diff() > 0) & (df['obv'].diff() < 0), 'obv_price_divergence'] = -1  # Bearish
+    df.loc[(df['close'].diff() < 0) & (df['obv'].diff() > 0), 'obv_price_divergence'] = 1   # Bullish
+    
+    # Phân kỳ RSI-Giá
+    df['rsi_price_divergence'] = 0
+    df.loc[(df['close'].diff() > 0) & (df['rsi'] > 70) & (df['rsi'].diff() < 0), 'rsi_price_divergence'] = -1
+    df.loc[(df['close'].diff() < 0) & (df['rsi'] < 30) & (df['rsi'].diff() > 0), 'rsi_price_divergence'] = 1
     
     # MACD
     df['ema12'] = df['close'].ewm(span=12, adjust=False).mean()
@@ -135,9 +151,9 @@ def calculate_indicators(df, coin):
     df['bb_upper'] = df['bb_mid'] + 2 * df['bb_std']
     df['bb_lower'] = df['bb_mid'] - 2 * df['bb_std']
     
-    # Support and Resistance
-    df['support'] = df['low'].rolling(window=50).min()
-    df['resistance'] = df['high'].rolling(window=50).max()
+    # Support và Resistance
+    df['support'] = df['low'].rolling(window=sma_long_window).min()
+    df['resistance'] = df['high'].rolling(window=sma_long_window).max()
     
     # Momentum
     df['momentum'] = df['close'].pct_change(periods=5) * 100
@@ -182,19 +198,185 @@ def calculate_indicators(df, coin):
     df['dx'] = 100 * abs(df['plus_di'] - df['minus_di']) / (df['plus_di'] + df['minus_di'])
     df['adx'] = df['dx'].rolling(window=14).mean()
     
+    # Ichimoku Cloud
+    df['tenkan_sen'] = (df['high'].rolling(window=9).max() + df['low'].rolling(window=9).min()) / 2
+    df['kijun_sen'] = (df['high'].rolling(window=26).max() + df['low'].rolling(window=26).min()) / 2
+    df['senkou_span_a'] = ((df['tenkan_sen'] + df['kijun_sen']) / 2).shift(26)
+    df['senkou_span_b'] = ((df['high'].rolling(window=52).max() + df['low'].rolling(window=52).min()) / 2).shift(26)
+    df['chikou_span'] = df['close'].shift(-26)
+    
     # Sentiment
-    df['sentiment'] = get_mock_sentiment(coin)
+    df['sentiment'] = get_sentiment(coin)
     
     return df
 
-def train_trend_model(df):
-    """Train ensemble models with XGBoost to predict price trend."""
+def calculate_reversal_probability(df):
+    """Tính toán xác suất đảo chiều xu hướng dựa trên các chỉ số kỹ thuật."""
+    if len(df) < 50:
+        return {
+            'reversal_probability': 0,
+            'reversal_direction': 'unknown',
+            'reversal_signals': [],
+            'confidence': 0
+        }
+    
+    latest = df.iloc[-1]
+    reversal_signals = []
+    bullish_reversal_score = 0
+    bearish_reversal_score = 0
+    
+    # 1. RSI Divergence (mạnh)
+    if latest.get('rsi_price_divergence', 0) == 1:  # Bullish divergence
+        bullish_reversal_score += 3
+        reversal_signals.append("RSI Bullish Divergence")
+    elif latest.get('rsi_price_divergence', 0) == -1:  # Bearish divergence
+        bearish_reversal_score += 3
+        reversal_signals.append("RSI Bearish Divergence")
+    
+    # 2. OBV Divergence (mạnh)
+    if latest.get('obv_price_divergence', 0) == 1:  # Bullish divergence
+        bullish_reversal_score += 3
+        reversal_signals.append("OBV Bullish Divergence")
+    elif latest.get('obv_price_divergence', 0) == -1:  # Bearish divergence
+        bearish_reversal_score += 3
+        reversal_signals.append("OBV Bearish Divergence")
+    
+    # 3. RSI Extreme với recovery signal
+    if latest['rsi'] < 25 and latest['rsi'] > latest.get('rsi_lag1', latest['rsi']):
+        bullish_reversal_score += 2
+        reversal_signals.append("RSI Oversold Recovery")
+    elif latest['rsi'] > 75 and latest['rsi'] < latest.get('rsi_lag1', latest['rsi']):
+        bearish_reversal_score += 2
+        reversal_signals.append("RSI Overbought Decline")
+    
+    # 4. Bollinger Bands extreme với volume
+    if (latest['close'] <= latest['bb_lower'] and 
+        latest.get('volume_spike', 0) == 1 and 
+        latest['close'] > latest['open']):  # Bullish candle at lower band with volume
+        bullish_reversal_score += 2
+        reversal_signals.append("BB Lower Band Bounce + Volume")
+    elif (latest['close'] >= latest['bb_upper'] and 
+          latest.get('volume_spike', 0) == 1 and 
+          latest['close'] < latest['open']):  # Bearish candle at upper band with volume
+        bearish_reversal_score += 2
+        reversal_signals.append("BB Upper Band Rejection + Volume")
+    
+    # 5. Stochastic Oversold/Overbought với crossover
+    if (latest['stoch_k'] < 20 and latest['stoch_d'] < 20 and 
+        latest['stoch_k'] > latest['stoch_d']):  # Bullish crossover in oversold
+        bullish_reversal_score += 1.5
+        reversal_signals.append("Stochastic Bullish Crossover")
+    elif (latest['stoch_k'] > 80 and latest['stoch_d'] > 80 and 
+          latest['stoch_k'] < latest['stoch_d']):  # Bearish crossover in overbought
+        bearish_reversal_score += 1.5
+        reversal_signals.append("Stochastic Bearish Crossover")
+    
+    # 6. Williams %R extreme
+    if latest['williams_r'] < -85:  # Extreme oversold
+        bullish_reversal_score += 1
+        reversal_signals.append("Williams %R Extreme Oversold")
+    elif latest['williams_r'] > -15:  # Extreme overbought
+        bearish_reversal_score += 1
+        reversal_signals.append("Williams %R Extreme Overbought")
+    
+    # 7. CCI extreme với recovery
+    if latest['cci'] < -150 and latest['cci'] > df['cci'].iloc[-2]:
+        bullish_reversal_score += 1.5
+        reversal_signals.append("CCI Oversold Recovery")
+    elif latest['cci'] > 150 and latest['cci'] < df['cci'].iloc[-2]:
+        bearish_reversal_score += 1.5
+        reversal_signals.append("CCI Overbought Decline")
+    
+    # 8. Support/Resistance test
+    price_range = latest['resistance'] - latest['support']
+    if price_range > 0:
+        support_distance = abs(latest['close'] - latest['support']) / price_range
+        resistance_distance = abs(latest['close'] - latest['resistance']) / price_range
+        
+        if support_distance < 0.05:  # Very close to support
+            bullish_reversal_score += 1.5
+            reversal_signals.append("Support Level Test")
+        elif resistance_distance < 0.05:  # Very close to resistance
+            bearish_reversal_score += 1.5
+            reversal_signals.append("Resistance Level Test")
+    
+    # 9. Volume spike confirmation
+    if latest.get('volume_spike', 0) == 1:
+        if latest['close'] > latest['open']:  # Bullish volume spike
+            bullish_reversal_score += 1
+            reversal_signals.append("Bullish Volume Spike")
+        else:  # Bearish volume spike
+            bearish_reversal_score += 1
+            reversal_signals.append("Bearish Volume Spike")
+    
+    # 10. MACD histogram divergence (nếu có)
+    macd_histogram = latest['macd'] - latest['signal_line']
+    prev_histogram = df['macd'].iloc[-2] - df['signal_line'].iloc[-2]
+    
+    if (latest['close'] < df['close'].iloc[-2] and macd_histogram > prev_histogram):
+        bullish_reversal_score += 1
+        reversal_signals.append("MACD Histogram Bullish Divergence")
+    elif (latest['close'] > df['close'].iloc[-2] and macd_histogram < prev_histogram):
+        bearish_reversal_score += 1
+        reversal_signals.append("MACD Histogram Bearish Divergence")
+    
+    # Tính toán kết quả cuối cùng
+    total_score = max(bullish_reversal_score, bearish_reversal_score)
+    max_possible_score = 15  # Tổng điểm tối đa có thể
+    
+    reversal_probability = min((total_score / max_possible_score) * 100, 95)  # Tối đa 95%
+    
+    if bullish_reversal_score > bearish_reversal_score:
+        reversal_direction = 'bullish'  # Đảo chiều lên
+        confidence = (bullish_reversal_score / max_possible_score) * 100
+    elif bearish_reversal_score > bullish_reversal_score:
+        reversal_direction = 'bearish'  # Đảo chiều xuống
+        confidence = (bearish_reversal_score / max_possible_score) * 100
+    else:
+        reversal_direction = 'neutral'
+        confidence = 0
+    
+    return {
+        'reversal_probability': round(reversal_probability, 1),
+        'reversal_direction': reversal_direction,
+        'reversal_signals': reversal_signals,
+        'confidence': round(confidence, 1),
+        'bullish_score': round(bullish_reversal_score, 1),
+        'bearish_score': round(bearish_reversal_score, 1)
+    }
+
+def backtest_strategy(df):
+    """Backtest chiến lược dựa trên total_score."""
+    df = df.copy()
+    df['returns'] = df['close'].pct_change()
+    df['strategy_returns'] = 0.0
+    position = 0
+    
+    for i in range(1, len(df)):
+        if df['total_score'].iloc[i] >= 8 and position <= 0:
+            position = 1
+            df.loc[df.index[i], 'strategy_returns'] = df['returns'].iloc[i]
+        elif df['total_score'].iloc[i] <= -8 and position >= 0:
+            position = -1
+            df.loc[df.index[i], 'strategy_returns'] = -df['returns'].iloc[i]
+        elif position != 0:
+            df.loc[df.index[i], 'strategy_returns'] = df['returns'].iloc[i] * position
+    
+    df['cumulative_returns'] = (1 + df['strategy_returns']).cumprod() - 1
+    total_return = df['cumulative_returns'].iloc[-1] if len(df['cumulative_returns']) > 0 else 0
+    sharpe_ratio = (df['strategy_returns'].mean() / df['strategy_returns'].std()) * np.sqrt(252) if df['strategy_returns'].std() != 0 else 0
+    return {'total_return': total_return, 'sharpe_ratio': sharpe_ratio}
+
+def train_trend_model(df, save_model=True):
+    """Huấn luyện mô hình ensemble với các đặc trưng bổ sung. Nếu save_model=False thì không lưu model."""
     import os
     import pickle
     features = ['sma_short', 'sma_long', 'rsi', 'rsi_lag1', 'rsi_lag2', 'volume_sma', 'volume_trend', 
-                'obv', 'macd', 'signal_line', 'bb_upper', 'bb_lower', 'support', 'resistance', 
-                'momentum', 'price_change_lag1', 'stoch_k', 'stoch_d', 'williams_r', 'atr', 'roc', 
-                'cci', 'adx']
+                'volume_spike', 'obv', 'obv_price_divergence', 'rsi_price_divergence', 'macd', 
+                'signal_line', 'bb_upper', 'bb_lower', 'support', 'resistance', 'momentum', 
+                'price_change_lag1', 'stoch_k', 'stoch_d', 'williams_r', 'atr', 'roc', 'cci', 
+                'adx', 'tenkan_sen', 'kijun_sen', 'senkou_span_a', 'senkou_span_b']
+    
     df['price_change'] = (df['close'].shift(-1) > df['close']).astype(int)
 
     train_df = df[features + ['price_change']].dropna()
@@ -272,59 +454,58 @@ def train_trend_model(df):
         except:
             pass
 
-    # Lưu lại model, scaler, model_info
-    # Lấy symbol và interval từ df nếu có
+    # Lưu lại model, scaler, model_info nếu save_model=True
     symbol = None
     interval = None
     if 'symbol' in df.columns:
         symbol = df['symbol'].iloc[0]
     if 'interval' in df.columns:
         interval = df['interval'].iloc[0]
-    # Nếu không có thì lấy mặc định
     if symbol is None:
         symbol = 'unknown'
     if interval is None:
         interval = '1h'
-    # Tạo thư mục models nếu chưa có
-    os.makedirs('models', exist_ok=True)
-    # Tên file lưu
-    model_path = f"models/model_{symbol}_{interval}.pkl"
-    scaler_path = f"models/scaler_{symbol}_{interval}.pkl"
-    info_path = f"models/modelinfo_{symbol}_{interval}.pkl"
-    # Lưu model, scaler, model_info
-    try:
-        with open(model_path, 'wb') as f:
-            pickle.dump(final_model, f)
-        with open(scaler_path, 'wb') as f:
-            pickle.dump(scaler, f)
-        with open(info_path, 'wb') as f:
-            pickle.dump({'accuracy': final_accuracy, 'type': model_type, 'all_accuracies': accuracies, 'feature_importance': feature_importance}, f)
-    except Exception as e:
-        print(f"Lỗi khi lưu model: {e}")
+    if save_model:
+        os.makedirs('models', exist_ok=True)
+        model_path = f"models/model_{symbol}_{interval}.pkl"
+        scaler_path = f"models/scaler_{symbol}_{interval}.pkl"
+        info_path = f"models/modelinfo_{symbol}_{interval}.pkl"
+        try:
+            with open(model_path, 'wb') as f:
+                pickle.dump(final_model, f)
+            with open(scaler_path, 'wb') as f:
+                pickle.dump(scaler, f)
+            with open(info_path, 'wb') as f:
+                pickle.dump({'accuracy': final_accuracy, 'type': model_type, 'all_accuracies': accuracies, 'feature_importance': feature_importance}, f)
+        except Exception as e:
+            print(f"Lỗi khi lưu model: {e}")
 
     return final_model, scaler, {'accuracy': final_accuracy, 'type': model_type, 
                                  'all_accuracies': accuracies, 'feature_importance': feature_importance}
 
 def predict_trend(df, model, scaler, model_info=None):
     """Predict price trend and confidence score."""
-    features = ['sma_short', 'sma_long', 'rsi', 'rsi_lag1', 'rsi_lag2', 'volume_sma', 'volume_trend', 
-                'obv', 'macd', 'signal_line', 'bb_upper', 'bb_lower', 'support', 'resistance', 
-                'momentum', 'price_change_lag1', 'stoch_k', 'stoch_d', 'williams_r', 'atr', 'roc', 
-                'cci', 'adx']
+    features = [
+        'sma_short', 'sma_long', 'rsi', 'rsi_lag1', 'rsi_lag2', 'volume_sma', 'volume_trend',
+        'volume_spike', 'obv', 'obv_price_divergence', 'rsi_price_divergence', 'macd',
+        'signal_line', 'bb_upper', 'bb_lower', 'support', 'resistance', 'momentum',
+        'price_change_lag1', 'stoch_k', 'stoch_d', 'williams_r', 'atr', 'roc', 'cci',
+        'adx', 'tenkan_sen', 'kijun_sen', 'senkou_span_a', 'senkou_span_b'
+    ]
     latest = df[features].iloc[-1:].dropna()
-    
     if latest.empty or model is None:
         return "Unknown", 0.0, None
-    
+
     X_scaled = scaler.transform(latest)
     prob = model.predict_proba(X_scaled)[0]
     prediction = "Up" if prob[1] > prob[0] else "Down"
     confidence = max(prob) * 100
-    
+
     return prediction, confidence, model_info
 
-def generate_signals(df):
-    """Generate buy/sell signals based on indicators and sentiment."""
+def generate_signals(df, coin=None, confidence_threshold=0.5):
+    """Tạo tín hiệu mua/bán với bộ lọc nhiễu và kết hợp tín hiệu."""
+    # Khởi tạo signal columns từ version cũ
     df['sma_signal'] = 0
     df['rsi_signal'] = 0
     df['volume_signal'] = 0
@@ -340,6 +521,16 @@ def generate_signals(df):
     df['cci_signal'] = 0
     df['adx_signal'] = 0
     
+    # Thêm các signal columns mới
+    df['signal'] = 0
+    df['combined_signal'] = 0
+    df['volume_spike_signal'] = 0
+    df['ichimoku_signal'] = 0
+    df['divergence_signal'] = 0
+    
+    if len(df) < 50:
+        return df, {"signal": 'hold', "confidence": 0, "reason": "Không đủ dữ liệu"}
+    
     for i in range(1, len(df)):
         # SMA Signal
         if (df['sma_short'].iloc[i] > df['sma_long'].iloc[i] and 
@@ -348,27 +539,32 @@ def generate_signals(df):
         elif (df['sma_short'].iloc[i] < df['sma_long'].iloc[i] and 
               df['sma_short'].iloc[i-1] >= df['sma_long'].iloc[i-1]):
             df.loc[df.index[i], 'sma_signal'] = -1
+            
         # RSI Signal (improved logic)
-        if df['rsi'].iloc[i] < 30:
+        if df['rsi'].iloc[i] < 25 and df['rsi'].iloc[i] > df['rsi'].iloc[i-1]:
             df.loc[df.index[i], 'rsi_signal'] = 1
-        elif df['rsi'].iloc[i] > 70:
+        elif df['rsi'].iloc[i] > 75 and df['rsi'].iloc[i] < df['rsi'].iloc[i-1]:
             df.loc[df.index[i], 'rsi_signal'] = -1
-        elif 30 <= df['rsi'].iloc[i] <= 70:
-            prev = df['rsi_signal'].iloc[i-1]
-            df.loc[df.index[i], 'rsi_signal'] = 0 if prev == 0 else prev
-        # Volume Signal
+            
+        # Volume Signal với volume spike
+        if pd.notna(df['volume_spike'].iloc[i]) and df['volume_spike'].iloc[i] == 1:
+            if df['close'].iloc[i] > df['open'].iloc[i]:
+                df.loc[df.index[i], 'volume_spike_signal'] = 1
+            else:
+                df.loc[df.index[i], 'volume_spike_signal'] = -1
+                
         if df['volume_trend'].iloc[i] == 1:
             if df['sma_signal'].iloc[i] > 0:
                 df.loc[df.index[i], 'volume_signal'] = 1
             elif df['sma_signal'].iloc[i] < 0:
                 df.loc[df.index[i], 'volume_signal'] = -1
-            else:
-                df.loc[df.index[i], 'volume_signal'] = 0
+                
         # OBV Signal
         if df['obv'].iloc[i] > df['obv'].iloc[i-1] and df['close'].iloc[i] > df['close'].iloc[i-1]:
             df.loc[df.index[i], 'obv_signal'] = 1
         elif df['obv'].iloc[i] < df['obv'].iloc[i-1] and df['close'].iloc[i] < df['close'].iloc[i-1]:
             df.loc[df.index[i], 'obv_signal'] = -1
+            
         # MACD Signal
         if (df['macd'].iloc[i] > df['signal_line'].iloc[i] and 
             df['macd'].iloc[i-1] <= df['signal_line'].iloc[i-1]):
@@ -376,11 +572,13 @@ def generate_signals(df):
         elif (df['macd'].iloc[i] < df['signal_line'].iloc[i] and 
               df['macd'].iloc[i-1] >= df['signal_line'].iloc[i-1]):
             df.loc[df.index[i], 'macd_signal'] = -1
+            
         # Bollinger Bands Signal
-        if df['close'].iloc[i] <= df['bb_lower'].iloc[i]:
+        if df['close'].iloc[i] <= df['bb_lower'].iloc[i] and df['rsi'].iloc[i] < 35:
             df.loc[df.index[i], 'bb_signal'] = 1
-        elif df['close'].iloc[i] >= df['bb_upper'].iloc[i]:
+        elif df['close'].iloc[i] >= df['bb_upper'].iloc[i] and df['rsi'].iloc[i] > 65:
             df.loc[df.index[i], 'bb_signal'] = -1
+            
         # Support/Resistance Signal
         price_range = df['resistance'].iloc[i] - df['support'].iloc[i]
         if price_range > 0:
@@ -388,50 +586,133 @@ def generate_signals(df):
                 df.loc[df.index[i], 'sr_signal'] = 1
             elif abs(df['close'].iloc[i] - df['resistance'].iloc[i]) / price_range < 0.1:
                 df.loc[df.index[i], 'sr_signal'] = -1
+                
         # Momentum Signal
         if df['momentum'].iloc[i] > 0:
             df.loc[df.index[i], 'momentum_signal'] = 1
         elif df['momentum'].iloc[i] < 0:
             df.loc[df.index[i], 'momentum_signal'] = -1
+            
         # Sentiment Signal
         if df['sentiment'].iloc[i] > 0.2:
             df.loc[df.index[i], 'sentiment_signal'] = 1
         elif df['sentiment'].iloc[i] < -0.2:
             df.loc[df.index[i], 'sentiment_signal'] = -1
+            
         # Stochastic Signal
         if df['stoch_k'].iloc[i] < 20 and df['stoch_d'].iloc[i] < 20:
             df.loc[df.index[i], 'stoch_signal'] = 1
         elif df['stoch_k'].iloc[i] > 80 and df['stoch_d'].iloc[i] > 80:
             df.loc[df.index[i], 'stoch_signal'] = -1
+            
         # Williams %R Signal
         if df['williams_r'].iloc[i] < -80:
             df.loc[df.index[i], 'williams_signal'] = 1
         elif df['williams_r'].iloc[i] > -20:
             df.loc[df.index[i], 'williams_signal'] = -1
+            
         # ROC Signal
         if df['roc'].iloc[i] > 0:
             df.loc[df.index[i], 'roc_signal'] = 1
         elif df['roc'].iloc[i] < 0:
             df.loc[df.index[i], 'roc_signal'] = -1
+            
         # CCI Signal
         if df['cci'].iloc[i] < -100:
             df.loc[df.index[i], 'cci_signal'] = 1
         elif df['cci'].iloc[i] > 100:
             df.loc[df.index[i], 'cci_signal'] = -1
+            
         # ADX Signal
         if df['adx'].iloc[i] > 25 and df['plus_di'].iloc[i] > df['minus_di'].iloc[i]:
             df.loc[df.index[i], 'adx_signal'] = 1
         elif df['adx'].iloc[i] > 25 and df['plus_di'].iloc[i] < df['minus_di'].iloc[i]:
             df.loc[df.index[i], 'adx_signal'] = -1
+            
+        # Ichimoku Signal
+        if (pd.notna(df['tenkan_sen'].iloc[i]) and pd.notna(df['kijun_sen'].iloc[i]) and
+            pd.notna(df['senkou_span_a'].iloc[i]) and pd.notna(df['senkou_span_b'].iloc[i])):
+            if (df['close'].iloc[i] > df['senkou_span_a'].iloc[i] and 
+                df['close'].iloc[i] > df['senkou_span_b'].iloc[i] and
+                df['tenkan_sen'].iloc[i] > df['kijun_sen'].iloc[i]):
+                df.loc[df.index[i], 'ichimoku_signal'] = 1
+            elif (df['close'].iloc[i] < df['senkou_span_a'].iloc[i] and 
+                  df['close'].iloc[i] < df['senkou_span_b'].iloc[i] and
+                  df['tenkan_sen'].iloc[i] < df['kijun_sen'].iloc[i]):
+                df.loc[df.index[i], 'ichimoku_signal'] = -1
+                
+        # Divergence Signal
+        if (pd.notna(df['obv_price_divergence'].iloc[i]) and 
+            df['obv_price_divergence'].iloc[i] != 0):
+            df.loc[df.index[i], 'divergence_signal'] = df['obv_price_divergence'].iloc[i]
+        elif (pd.notna(df['rsi_price_divergence'].iloc[i]) and 
+              df['rsi_price_divergence'].iloc[i] != 0):
+            df.loc[df.index[i], 'divergence_signal'] = df['rsi_price_divergence'].iloc[i]
     
-    # Calculate total score
+    # Calculate total score (original)
     df['total_score'] = (df['sma_signal'] + df['rsi_signal'] + df['volume_signal'] + 
                          df['obv_signal'] + df['macd_signal'] + df['bb_signal'] + 
                          df['sr_signal'] + df['momentum_signal'] + df['sentiment_signal'] + 
                          df['stoch_signal'] + df['williams_signal'] + df['roc_signal'] + 
                          df['cci_signal'] + df['adx_signal'])
     
-    return df
+    # Kết hợp tín hiệu với trọng số mới (enhanced version)
+    weights = {
+        'sma_signal': 0.15,
+        'rsi_signal': 0.12,
+        'macd_signal': 0.12,
+        'bb_signal': 0.10,
+        'volume_spike_signal': 0.08,
+        'ichimoku_signal': 0.08,
+        'divergence_signal': 0.08,
+        'volume_signal': 0.06,
+        'obv_signal': 0.06,
+        'stoch_signal': 0.05,
+        'williams_signal': 0.05,
+        'adx_signal': 0.05
+    }
+    
+    for signal_col, weight in weights.items():
+        if signal_col in df.columns:
+            df['combined_signal'] += df[signal_col] * weight
+    
+    # Tín hiệu cuối với ngưỡng confidence
+    df['signal'] = 0
+    df.loc[df['combined_signal'] >= confidence_threshold, 'signal'] = 1
+    df.loc[df['combined_signal'] <= -confidence_threshold, 'signal'] = -1
+    
+    # Lấy tín hiệu cuối cùng
+    latest = df.iloc[-1]
+    signal_strength = abs(latest['combined_signal'])
+    confidence = min(signal_strength / confidence_threshold, 1.0) if confidence_threshold > 0 else 0
+    
+    # Xác định reason
+    reasons = []
+    if abs(latest['sma_signal']) > 0:
+        reasons.append(f"MA ({'Bullish' if latest['sma_signal'] > 0 else 'Bearish'})")
+    if abs(latest['rsi_signal']) > 0:
+        reasons.append(f"RSI ({'Recovery' if latest['rsi_signal'] > 0 else 'Decline'})")
+    if abs(latest['macd_signal']) > 0:
+        reasons.append(f"MACD ({'Bullish' if latest['macd_signal'] > 0 else 'Bearish'})")
+    if abs(latest['bb_signal']) > 0:
+        reasons.append(f"BB ({'Support' if latest['bb_signal'] > 0 else 'Resistance'})")
+    if abs(latest.get('volume_spike_signal', 0)) > 0:
+        reasons.append(f"Volume Spike ({'Bullish' if latest['volume_spike_signal'] > 0 else 'Bearish'})")
+    if abs(latest.get('ichimoku_signal', 0)) > 0:
+        reasons.append(f"Ichimoku ({'Above Cloud' if latest['ichimoku_signal'] > 0 else 'Below Cloud'})")
+    
+    reason = "; ".join(reasons) if reasons else "Tín hiệu yếu"
+    
+    signal_map = {-1: 'sell', 0: 'hold', 1: 'buy'}
+    signal_result = signal_map.get(latest['signal'], 'hold')
+    
+    return df, {
+        "signal": signal_result,
+        "confidence": confidence,
+        "reason": reason,
+        "strength": signal_strength,
+        "total_score": latest['total_score']
+    }
 
 def calculate_risk_reward(current_price, take_profit_pct, stop_loss_pct, recommendation, signal_score, trend_prediction, confidence):
     """Calculate risk/reward analysis and adjust recommendation."""
@@ -520,7 +801,8 @@ def save_settings():
             'interval': data.get('interval', '1h'),
             'investment_amount': data.get('investment_amount', 1000000),
             'take_profit': data.get('take_profit', 3.0),
-            'stop_loss': data.get('stop_loss', 1.5)
+            'stop_loss': data.get('stop_loss', 1.5),
+            'save_model': data.get('save_model', True)
         }
         with open('user_settings.txt', 'w', encoding='utf-8') as f:
             json.dump(settings, f, ensure_ascii=False, indent=2)
@@ -559,19 +841,30 @@ def analyze():
         return jsonify({'error': f'get_binance_data: {str(e)}'}), 500
 
     try:
-        df = calculate_indicators(df, coin)
+        df = calculate_indicators(df, coin, interval)
     except Exception as e:
         print(f"Error at calculate_indicators: {str(e)}")
         return jsonify({'error': f'calculate_indicators: {str(e)}'}), 500
 
     try:
-        df = generate_signals(df)
+        df, signal_info = generate_signals(df, coin)
     except Exception as e:
         print(f"Error at generate_signals: {str(e)}")
         return jsonify({'error': f'generate_signals: {str(e)}'}), 500
 
+    # Lấy cờ save_model từ request hoặc settings
     try:
-        model, scaler, model_info = train_trend_model(df)
+        save_model = True
+        if 'save_model' in data:
+            save_model = data['save_model']
+        else:
+            # Đọc từ file settings nếu có
+            import os
+            if os.path.exists('user_settings.txt'):
+                with open('user_settings.txt', 'r', encoding='utf-8') as f:
+                    settings = json.load(f)
+                    save_model = settings.get('save_model', True)
+        model, scaler, model_info = train_trend_model(df, save_model=save_model)
     except Exception as e:
         print(f"Error at train_trend_model: {str(e)}")
         return jsonify({'error': f'train_trend_model: {str(e)}'}), 500
@@ -586,6 +879,13 @@ def analyze():
         latest = df.iloc[-1]
         current_price = latest['close']
         total_score = latest['total_score']
+        
+        # Tính toán reversal probability
+        reversal_info = calculate_reversal_probability(df)
+        
+        # Tính backtest results
+        backtest_results = backtest_strategy(df)
+        
         if total_score >= 8:
             recommendation = "STRONG BUY"
         elif total_score >= 6:
@@ -599,6 +899,13 @@ def analyze():
     except Exception as e:
         print(f"Error at get latest/score/recommendation: {str(e)}")
         return jsonify({'error': f'get latest/score/recommendation: {str(e)}'}), 500
+
+    try:
+        # Backtest strategy
+        backtest_results = backtest_strategy(df)
+    except Exception as e:
+        print(f"Error at backtest_strategy: {str(e)}")
+        backtest_results = {'total_return': 0, 'sharpe_ratio': 0}
 
     try:
         risk_reward = calculate_risk_reward(
@@ -702,6 +1009,9 @@ def analyze():
             'trend_prediction': str(trend),
             'confidence': float(round(float(confidence), 2)),
             'signal_score': int(total_score),
+            'signal_info': signal_info,
+            'reversal_info': reversal_info,
+            'backtest_results': to_native(backtest_results),
             'risk_reward': safe_risk_reward,
             'investment_details': safe_investment_details,
             'indicators': safe_indicators,
@@ -737,8 +1047,8 @@ def suggest_best_pairs():
             try:
                 coin = symbol.replace('JPY', '')
                 df = get_binance_data(symbol, interval=interval, limit=limit)
-                df = calculate_indicators(df, coin)
-                df = generate_signals(df)
+                df = calculate_indicators(df, coin, interval)
+                df, signal_info = generate_signals(df, coin)
 
                 # Train model
                 model, scaler, model_info = train_trend_model(df)

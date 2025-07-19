@@ -450,6 +450,95 @@
                 grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
             }
         }
+        
+        /* Reversal Prediction Styles */
+        .reversal-prediction {
+            background: linear-gradient(135deg, #f8f9fa, #e9ecef);
+            border-radius: 15px;
+            padding: 20px;
+            margin-top: 20px;
+            border: 1px solid #dee2e6;
+        }
+        
+        .reversal-card {
+            background: white;
+            border-radius: 10px;
+            padding: 20px;
+            text-align: center;
+            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+        }
+        
+        .reversal-probability {
+            margin-bottom: 15px;
+        }
+        
+        .probability-value {
+            display: block;
+            font-size: 2.5rem;
+            font-weight: bold;
+            color: #495057;
+        }
+        
+        .probability-label {
+            display: block;
+            font-size: 0.9rem;
+            color: #6c757d;
+            margin-top: 5px;
+        }
+        
+        .reversal-direction {
+            font-size: 1.2rem;
+            font-weight: 600;
+            margin-bottom: 10px;
+        }
+        
+        .reversal-confidence {
+            font-size: 1rem;
+            color: #6c757d;
+        }
+        
+        .reversal-signals {
+            background: white;
+            border-radius: 10px;
+            padding: 20px;
+            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+        }
+        
+        .signal-list {
+            list-style: none;
+            padding: 0;
+            margin: 0;
+        }
+        
+        .signal-list li {
+            padding: 8px 12px;
+            margin: 5px 0;
+            background: #f8f9fa;
+            border-radius: 8px;
+            border-left: 4px solid #007bff;
+            font-size: 0.9rem;
+        }
+        
+        .signal-list li:before {
+            content: "• ";
+            color: #007bff;
+            font-weight: bold;
+            margin-right: 8px;
+        }
+        
+        @media (max-width: 767px) {
+            .reversal-prediction {
+                padding: 15px;
+            }
+            
+            .probability-value {
+                font-size: 2rem;
+            }
+            
+            .reversal-direction {
+                font-size: 1rem;
+            }
+        }
     </style>
 </head>
 <body>
@@ -507,8 +596,17 @@
 <input type="number" class="form-control" id="stopLoss" value="1.5" min="0.1" max="20" step="0.1" oninput="calculateProfitLoss()">
 
                         </div>
+                </div>
+                <!-- Toggle save model -->
+                <div class="row mb-2">
+                    <div class="col-12 text-end">
+                        <div class="form-check form-switch d-inline-block">
+                            <input class="form-check-input" type="checkbox" id="saveModelToggle" checked onchange="saveUserSettings()">
+                            <label class="form-check-label" for="saveModelToggle" style="font-weight:500;">Lưu mô hình AI sau mỗi lần huấn luyện</label>
+                        </div>
                     </div>
-                    <!-- Profit/Loss Calculation Display -->
+                </div>
+                <!-- Profit/Loss Calculation Display -->
                     <div class="row mt-3" id="profitLossDisplay" style="display: none;">
                         <div class="col-md-6 mb-3">
                             <div class="alert alert-success h-100 d-flex flex-column justify-content-center">
@@ -563,6 +661,7 @@
             const investmentAmount = getInvestmentAmountRaw();
             const takeProfit = parseFloat(document.getElementById('takeProfit').value) || 3.0;
             const stopLoss = parseFloat(document.getElementById('stopLoss').value) || 1.5;
+            const saveModel = document.getElementById('saveModelToggle') ? document.getElementById('saveModelToggle').checked : true;
             fetch('/save_settings', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
@@ -571,7 +670,8 @@
                     interval: interval,
                     investment_amount: investmentAmount,
                     take_profit: takeProfit,
-                    stop_loss: stopLoss
+                    stop_loss: stopLoss,
+                    save_model: saveModel
                 })
             });
         }
@@ -598,6 +698,9 @@
                     }
                     if (settings.stop_loss && document.getElementById('stopLoss')) {
                         document.getElementById('stopLoss').value = settings.stop_loss;
+                    }
+                    if (typeof settings.save_model !== 'undefined' && document.getElementById('saveModelToggle')) {
+                        document.getElementById('saveModelToggle').checked = settings.save_model;
                     }
                     // Enable analyze button nếu đã chọn cặp
                     const analyzeBtn = document.querySelector('.analyze-btn.me-2');
@@ -873,91 +976,53 @@
                 </div>
             `;
 
-            // Model info section
-            document.getElementById('model-info-section').innerHTML = `
-                <div class="model-info">
-                    <h5><i class="fas fa-robot"></i> Hiệu suất mô hình AI</h5>
-                    <p><strong>Loại mô hình:</strong> ${data.model_info.type}</p>
-                    <p><strong>Độ chính xác:</strong> ${(data.model_info.accuracy * 100).toFixed(1)}%</p>
-                </div>
-            `;
-
             // Trend prediction section
             const trendIcon = data.trend_prediction === 'Up' ? 'fa-arrow-up' : 'fa-arrow-down';
             const trendColor = data.trend_prediction === 'Up' ? '#4CAF50' : '#F44336';
             const trendText = data.trend_prediction === 'Up' ? 'Tăng' : 'Giảm';
             document.getElementById('trend-prediction-section').innerHTML = `
-                <div class="trend-prediction">
-                    <h5><i class="fas fa-crystal-ball"></i> Dự đoán xu hướng</h5>
-                    <p style="color: ${trendColor}; font-size: 24px; font-weight: bold;">
-                        <i class="fas ${trendIcon}"></i> ${trendText} 
-                        (${data.confidence}% độ tin cậy)
-                    </p>
+                <div class="row">
+                    <div class="col-md-6">
+                        <div class="trend-prediction">
+                            <h5><i class="fas fa-crystal-ball"></i> Dự đoán xu hướng</h5>
+                            <p style="color: ${trendColor}; font-size: 24px; font-weight: bold;">
+                                <i class="fas ${trendIcon}"></i> ${trendText} 
+                                (${data.confidence}% độ tin cậy)
+                            </p>
+                        </div>
+                    </div>
+                    <div class="col-md-6">
+                        ${data.reversal_info ? `
+                        <div class="reversal-prediction mt-0">
+                            <h5><i class="fas fa-exchange-alt"></i> Dự đoán khuynh hướng đảo chiều</h5>
+                            <div class="row">
+                                <div class="col-12">
+                                    <div class="reversal-card">
+                                        <div class="reversal-probability">
+                                            <span class="probability-value">${data.reversal_info.reversal_probability}%</span>
+                                            <span class="probability-label">Xác suất đảo chiều</span>
+                                        </div>
+                                        <div class="reversal-direction">
+                                            ${data.reversal_info.reversal_direction === 'bullish' ? 
+                                                '<i class="fas fa-arrow-up text-success"></i> Đảo chiều lên' : 
+                                                data.reversal_info.reversal_direction === 'bearish' ? 
+                                                '<i class="fas fa-arrow-down text-danger"></i> Đảo chiều xuống' : 
+                                                '<i class="fas fa-minus text-secondary"></i> Không rõ ràng'}
+                                        </div>
+                                        <div class="reversal-confidence">
+                                            Độ tin cậy: ${data.reversal_info.confidence}%
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                        ` : ''}
+                    </div>
                 </div>
             `;
 
             // Indicators section
-            document.getElementById('indicators-section').innerHTML = `
-                <h4 class="text-center mb-3 mb-md-4"><i class="fas fa-chart-bar"></i> Chỉ báo kỹ thuật</h4>
-                <div class="indicators-grid">
-                    <div class="indicator-card">
-                        <div class="indicator-label">RSI</div>
-                        <div class="indicator-value">${data.indicators.rsi}</div>
-                    </div>
-                    <div class="indicator-card">
-                        <div class="indicator-label">RSI Lag1</div>
-                        <div class="indicator-value">${data.indicators.rsi_lag1}</div>
-                    </div>
-                    <div class="indicator-card">
-                        <div class="indicator-label">MACD</div>
-                        <div class="indicator-value">${data.indicators.macd}</div>
-                    </div>
-                    <div class="indicator-card">
-                        <div class="indicator-label">OBV</div>
-                        <div class="indicator-value">${data.indicators.obv}</div>
-                    </div>
-                    <div class="indicator-card">
-                        <div class="indicator-label">Stochastic K</div>
-                        <div class="indicator-value">${data.indicators.stoch_k}</div>
-                    </div>
-                    <div class="indicator-card">
-                        <div class="indicator-label">Williams %R</div>
-                        <div class="indicator-value">${data.indicators.williams_r}</div>
-                    </div>
-                    <div class="indicator-card">
-                        <div class="indicator-label">ROC</div>
-                        <div class="indicator-value">${data.indicators.roc}%</div>
-                    </div>
-                    <div class="indicator-card">
-                        <div class="indicator-label">CCI</div>
-                        <div class="indicator-value">${data.indicators.cci}</div>
-                    </div>
-                    <div class="indicator-card">
-                        <div class="indicator-label">ADX</div>
-                        <div class="indicator-value">${data.indicators.adx}</div>
-                    </div>
-                    <div class="indicator-card">
-                        <div class="indicator-label">Support</div>
-                        <div class="indicator-value">¥${data.indicators.support}</div>
-                    </div>
-                    <div class="indicator-card">
-                        <div class="indicator-label">Resistance</div>
-                        <div class="indicator-value">¥${data.indicators.resistance}</div>
-                    </div>
-                    <div class="indicator-card">
-                        <div class="indicator-label">Momentum</div>
-                        <div class="indicator-value">${data.indicators.momentum}%</div>
-                    </div>
-                    <div class="indicator-card">
-                        <div class="indicator-label">Sentiment</div>
-                        <div class="indicator-value">${data.indicators.sentiment}</div>
-                    </div>
-                    <div class="indicator-card">
-                        <div class="indicator-label">Volume Trend</div>
-                        <div class="indicator-value" style="font-size: 14px;">${data.indicators.volume_trend}</div>
-                    </div>
-                </div>
-            `;
+            
 
             // Charts section
             displayCharts(data.chart_data, data.symbol);
