@@ -373,16 +373,26 @@ def train_trend_model(df, save_model=True):
     """Huấn luyện mô hình ensemble với các đặc trưng bổ sung. Nếu save_model=False thì không lưu model."""
     import os
     import pickle
+
+    # Kiểm tra DataFrame rỗng hoặc thiếu cột 'close'
+    if df is None or df.empty:
+        print(f"[train_trend_model] DataFrame is None or empty. df: {df}")
+        return None, None, None
+    if 'close' not in df.columns:
+        print(f"[train_trend_model] DataFrame missing 'close' column. Columns: {df.columns}")
+        return None, None, None
+
     features = ['sma_short', 'sma_long', 'rsi', 'rsi_lag1', 'rsi_lag2', 'volume_sma', 'volume_trend', 
                 'volume_spike', 'obv', 'obv_price_divergence', 'rsi_price_divergence', 'macd', 
                 'signal_line', 'bb_upper', 'bb_lower', 'support', 'resistance', 'momentum', 
                 'price_change_lag1', 'stoch_k', 'stoch_d', 'williams_r', 'atr', 'roc', 'cci', 
                 'adx', 'tenkan_sen', 'kijun_sen', 'senkou_span_a', 'senkou_span_b']
-    
+
     df['price_change'] = (df['close'].shift(-1) > df['close']).astype(int)
 
     train_df = df[features + ['price_change']].dropna()
     if len(train_df) < 30:
+        print(f"[train_trend_model] train_df is too small after dropna. len(train_df): {len(train_df)}")
         return None, None, None
 
     X = train_df[features]
