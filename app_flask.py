@@ -189,64 +189,64 @@ def calculate_indicators(df, coin):
 
 def train_trend_model(df):
     """Train ensemble models with XGBoost to predict price trend."""
+    import os
+    import pickle
     features = ['sma_short', 'sma_long', 'rsi', 'rsi_lag1', 'rsi_lag2', 'volume_sma', 'volume_trend', 
                 'obv', 'macd', 'signal_line', 'bb_upper', 'bb_lower', 'support', 'resistance', 
                 'momentum', 'price_change_lag1', 'stoch_k', 'stoch_d', 'williams_r', 'atr', 'roc', 
                 'cci', 'adx']
     df['price_change'] = (df['close'].shift(-1) > df['close']).astype(int)
-    
+
     train_df = df[features + ['price_change']].dropna()
     if len(train_df) < 30:
         return None, None, None
-    
+
     X = train_df[features]
     y = train_df['price_change']
-    
+
     X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.3, random_state=42, stratify=y)
-    
+
     scaler = StandardScaler()
     X_train_scaled = scaler.fit_transform(X_train)
     X_test_scaled = scaler.transform(X_test)
-    
+
     models = {
         'logistic': LogisticRegression(max_iter=1000, random_state=42),
         'random_forest': RandomForestClassifier(n_estimators=100, random_state=42),
         'svm': SVC(probability=True, random_state=42)
     }
-    
+
     # Add XGBoost if available
     try:
         models['xgboost'] = xgb.XGBClassifier(random_state=42, eval_metric='logloss')
     except:
         pass  # Skip XGBoost if not installed
-    
+
     trained_models = {}
     accuracies = {}
-    
+
     for name, model in models.items():
         model.fit(X_train_scaled, y_train)
         trained_models[name] = model
         y_pred = model.predict(X_test_scaled)
         accuracies[name] = accuracy_score(y_test, y_pred)
-        
         # Cross-validation score
         try:
             cv_scores = cross_val_score(model, X_train_scaled, y_train, cv=5)
-            #print(f"{name.title()} - Test Accuracy: {accuracies[name]:.3f}, CV Score: {cv_scores.mean():.3f}")
         except:
             print(f"ERROR 2: {name.title()} - Test Accuracy: {accuracies[name]:.3f}")
-    
+
     # Create ensemble model
     ensemble_models = [('lr', models['logistic']), ('rf', models['random_forest']), ('svm', models['svm'])]
     if 'xgboost' in models:
         ensemble_models.append(('xgb', models['xgboost']))
-    
+
     ensemble = VotingClassifier(estimators=ensemble_models, voting='soft')
-    
+
     ensemble.fit(X_train_scaled, y_train)
     ensemble_pred = ensemble.predict(X_test_scaled)
     ensemble_accuracy = accuracy_score(y_test, ensemble_pred)
-    
+
     if ensemble_accuracy >= max(accuracies.values()):
         final_model = ensemble
         final_accuracy = ensemble_accuracy
@@ -256,7 +256,7 @@ def train_trend_model(df):
         final_model = trained_models[best_model_name]
         final_accuracy = accuracies[best_model_name]
         model_type = best_model_name.title()
-    
+
     # Feature importance (for Random Forest or XGBoost)
     feature_importance = None
     if model_type.lower() in ['random_forest', 'xgboost']:
@@ -266,13 +266,42 @@ def train_trend_model(df):
         except:
             pass
     elif model_type == "Ensemble":
-        # Get feature importance from Random Forest in ensemble
         try:
             rf_model = trained_models['random_forest']
             feature_importance = dict(zip(features, rf_model.feature_importances_))
         except:
             pass
-    
+
+    # Lưu lại model, scaler, model_info
+    # Lấy symbol và interval từ df nếu có
+    symbol = None
+    interval = None
+    if 'symbol' in df.columns:
+        symbol = df['symbol'].iloc[0]
+    if 'interval' in df.columns:
+        interval = df['interval'].iloc[0]
+    # Nếu không có thì lấy mặc định
+    if symbol is None:
+        symbol = 'unknown'
+    if interval is None:
+        interval = '1h'
+    # Tạo thư mục models nếu chưa có
+    os.makedirs('models', exist_ok=True)
+    # Tên file lưu
+    model_path = f"models/model_{symbol}_{interval}.pkl"
+    scaler_path = f"models/scaler_{symbol}_{interval}.pkl"
+    info_path = f"models/modelinfo_{symbol}_{interval}.pkl"
+    # Lưu model, scaler, model_info
+    try:
+        with open(model_path, 'wb') as f:
+            pickle.dump(final_model, f)
+        with open(scaler_path, 'wb') as f:
+            pickle.dump(scaler, f)
+        with open(info_path, 'wb') as f:
+            pickle.dump({'accuracy': final_accuracy, 'type': model_type, 'all_accuracies': accuracies, 'feature_importance': feature_importance}, f)
+    except Exception as e:
+        print(f"Lỗi khi lưu model: {e}")
+
     return final_model, scaler, {'accuracy': final_accuracy, 'type': model_type, 
                                  'all_accuracies': accuracies, 'feature_importance': feature_importance}
 
