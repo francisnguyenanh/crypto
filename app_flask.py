@@ -39,20 +39,33 @@ def get_binance_data(symbol, interval='1h', limit=1000):
         'limit': limit
     }
     response = requests.get(url, params=params)
-    data = response.json()
-    
+    print(f"[get_binance_data] Status code: {response.status_code}")
+    print(f"[get_binance_data] Response text: {response.text[:300]}")
+    try:
+        data = response.json()
+    except Exception as e:
+        print(f"[get_binance_data] Error parsing JSON: {e}")
+        data = []
+    if not isinstance(data, list) or len(data) == 0:
+        print(f"[get_binance_data] Data is not a list or empty. Data: {data}")
+        return pd.DataFrame()
     # Convert to DataFrame
     df = pd.DataFrame(data, columns=[
         'timestamp', 'open', 'high', 'low', 'close', 'volume',
         'close_time', 'quote_asset_volume', 'number_of_trades',
         'taker_buy_base_volume', 'taker_buy_quote_volume', 'ignore'
     ])
+    print(f"[get_binance_data] DataFrame shape: {df.shape}")
+    if df.empty:
+        print("[get_binance_data] DataFrame is empty after creation.")
+        return df
     df['timestamp'] = pd.to_datetime(df['timestamp'], unit='ms')
     df['close'] = df['close'].astype(float)
     df['open'] = df['open'].astype(float)
     df['high'] = df['high'].astype(float)
     df['low'] = df['low'].astype(float)
     df['volume'] = df['volume'].astype(float)
+    print(f"[get_binance_data] DataFrame head:\n{df.head(2)}")
     return df[['timestamp', 'open', 'high', 'low', 'close', 'volume']]
 
 
@@ -849,17 +862,17 @@ def analyze():
     try:
         # Kiểm tra nếu DataFrame rỗng hoặc không đủ dòng
         if df is None or len(df) == 0:
+            print(f"[analyze] DataFrame is None or empty after indicators/signals. df: {df}")
             return jsonify({'error': 'Không đủ dữ liệu sau khi tính toán indicators/signals.'}), 400
+        print(f"[analyze] DataFrame shape before latest: {df.shape}")
+        print(f"[analyze] DataFrame tail:\n{df.tail(2)}")
         latest = df.iloc[-1]
         current_price = latest['close']
         total_score = latest['total_score']
-        
         # Tính toán reversal probability
         reversal_info = calculate_reversal_probability(df)
-        
         # Tính backtest results
         backtest_results = backtest_strategy(df)
-        
         if total_score >= 8:
             recommendation = "STRONG BUY"
         elif total_score >= 6:
