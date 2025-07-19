@@ -66,6 +66,13 @@ def get_binance_data(symbol, interval='1h', limit=1000):
     df['low'] = df['low'].astype(float)
     df['volume'] = df['volume'].astype(float)
     print(f"[get_binance_data] DataFrame head:\n{df.head(2)}")
+    # Lưu DataFrame ra file để kiểm tra dữ liệu thực tế
+    try:
+        debug_filename = f"binance_data_{symbol}_{interval}.csv"
+        df.to_csv(debug_filename, index=False, encoding='utf-8')
+        print(f"[get_binance_data] Saved DataFrame to {debug_filename}")
+    except Exception as e:
+        print(f"[get_binance_data] Error saving DataFrame to CSV: {e}")
     return df[['timestamp', 'open', 'high', 'low', 'close', 'volume']]
 
 
