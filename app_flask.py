@@ -7,7 +7,6 @@ import time
 import os
 import json
 import pickle
-from textblob import TextBlob
 from sklearn.linear_model import LogisticRegression
 from sklearn.preprocessing import StandardScaler
 from sklearn.ensemble import RandomForestClassifier, VotingClassifier
@@ -56,22 +55,6 @@ def get_binance_data(symbol, interval='1h', limit=1000):
     df['volume'] = df['volume'].astype(float)
     return df[['timestamp', 'open', 'high', 'low', 'close', 'volume']]
 
-def get_sentiment(coin):
-    """Phân tích tâm lý từ dữ liệu giả lập (thay thế cho dữ liệu X)."""
-    mock_posts = {
-        'BTC': ["Bitcoin bullish!", "BTC may correct soon.", "Institutional buying in BTC!"],
-        'ETH': ["Ethereum upgrade success!", "ETH DeFi is booming!", "ETH gas fees high."],
-        'XRP': ["XRP legal win!", "Bearish on XRP.", "XRP stable."],
-        'ADA': ["Cardano smart contracts live!", "ADA slow development.", "ADA staking rewards."],
-        'SOL': ["Solana fastest blockchain!", "SOL network issues.", "SOL ecosystem growing."],
-        'MATIC': ["Polygon scaling!", "MATIC new partnerships!", "Layer 2 adoption."],
-        'LINK': ["Chainlink oracles critical!", "LINK price feeds stable.", "LINK adoption growing."],
-        'XLM': ["Stellar for payments!", "XLM banking partnerships.", "XLM undervalued."],
-        'SUI': ["SUI breakout!", "SUI new tech promising.", "SUI early adoption."]
-    }
-    posts = mock_posts.get(coin, ["Neutral sentiment."])
-    scores = [TextBlob(post).sentiment.polarity for post in posts]
-    return sum(scores) / len(scores)
 
 
 @app.route('/get_settings', methods=['GET'])
@@ -205,8 +188,7 @@ def calculate_indicators(df, coin, interval='1h'):
     df['senkou_span_b'] = ((df['high'].rolling(window=52).max() + df['low'].rolling(window=52).min()) / 2).shift(26)
     df['chikou_span'] = df['close'].shift(-26)
     
-    # Sentiment
-    df['sentiment'] = get_sentiment(coin)
+    # Bỏ sentiment
     
     return df
 
@@ -514,7 +496,7 @@ def generate_signals(df, coin=None, confidence_threshold=0.5):
     df['bb_signal'] = 0
     df['sr_signal'] = 0
     df['momentum_signal'] = 0
-    df['sentiment_signal'] = 0
+    # df['sentiment_signal'] = 0  # Bỏ sentiment
     df['stoch_signal'] = 0
     df['williams_signal'] = 0
     df['roc_signal'] = 0
@@ -593,12 +575,6 @@ def generate_signals(df, coin=None, confidence_threshold=0.5):
         elif df['momentum'].iloc[i] < 0:
             df.loc[df.index[i], 'momentum_signal'] = -1
             
-        # Sentiment Signal
-        if df['sentiment'].iloc[i] > 0.2:
-            df.loc[df.index[i], 'sentiment_signal'] = 1
-        elif df['sentiment'].iloc[i] < -0.2:
-            df.loc[df.index[i], 'sentiment_signal'] = -1
-            
         # Stochastic Signal
         if df['stoch_k'].iloc[i] < 20 and df['stoch_d'].iloc[i] < 20:
             df.loc[df.index[i], 'stoch_signal'] = 1
@@ -652,7 +628,7 @@ def generate_signals(df, coin=None, confidence_threshold=0.5):
     # Calculate total score (original)
     df['total_score'] = (df['sma_signal'] + df['rsi_signal'] + df['volume_signal'] + 
                          df['obv_signal'] + df['macd_signal'] + df['bb_signal'] + 
-                         df['sr_signal'] + df['momentum_signal'] + df['sentiment_signal'] + 
+                         df['sr_signal'] + df['momentum_signal'] + 
                          df['stoch_signal'] + df['williams_signal'] + df['roc_signal'] + 
                          df['cci_signal'] + df['adx_signal'])
     
@@ -680,12 +656,10 @@ def generate_signals(df, coin=None, confidence_threshold=0.5):
     df['signal'] = 0
     df.loc[df['combined_signal'] >= confidence_threshold, 'signal'] = 1
     df.loc[df['combined_signal'] <= -confidence_threshold, 'signal'] = -1
-    
     # Lấy tín hiệu cuối cùng
     latest = df.iloc[-1]
     signal_strength = abs(latest['combined_signal'])
     confidence = min(signal_strength / confidence_threshold, 1.0) if confidence_threshold > 0 else 0
-    
     # Xác định reason
     reasons = []
     if abs(latest['sma_signal']) > 0:
@@ -700,12 +674,9 @@ def generate_signals(df, coin=None, confidence_threshold=0.5):
         reasons.append(f"Volume Spike ({'Bullish' if latest['volume_spike_signal'] > 0 else 'Bearish'})")
     if abs(latest.get('ichimoku_signal', 0)) > 0:
         reasons.append(f"Ichimoku ({'Above Cloud' if latest['ichimoku_signal'] > 0 else 'Below Cloud'})")
-    
     reason = "; ".join(reasons) if reasons else "Tín hiệu yếu"
-    
     signal_map = {-1: 'sell', 0: 'hold', 1: 'buy'}
     signal_result = signal_map.get(latest['signal'], 'hold')
-    
     return df, {
         "signal": signal_result,
         "confidence": confidence,
