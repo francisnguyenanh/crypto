@@ -16,6 +16,22 @@ import json
 
 app = Flask(__name__)
 
+
+def get_limit_for_interval(interval):
+    """Chọn limit phù hợp với interval để phân tích đúng khung thời gian."""
+    if interval in ['15m', '30m']:
+        return 500   # ~10 ngày
+    elif interval == '1h':
+        return 300   # ~12 ngày
+    elif interval == '4h':
+        return 200   # ~33 ngày
+    elif interval == '1d':
+        return 500   # ~1.5 năm
+    elif interval == '1w':
+        return 200   # ~4 năm
+    else:
+        return 300   # mặc định
+    
 def get_binance_data(symbol, interval='1h', limit=500):
     """Fetch historical klines from Binance public API."""
     url = "https://api.binance.com/api/v3/klines"
@@ -60,6 +76,28 @@ def get_mock_sentiment(coin):
     avg_score = sum(scores) / len(scores)
     return avg_score
 
+
+@app.route('/get_settings', methods=['GET'])
+def get_settings():
+    import os
+    try:
+        if not os.path.exists('user_settings.txt'):
+            # Trả về mặc định nếu chưa có file
+            settings = {
+                'symbol': 'BTCJPY',
+                'interval': '1h',
+                'investment_amount': 1000000,
+                'take_profit': 3.0,
+                'stop_loss': 1.5
+            }
+        else:
+            with open('user_settings.txt', 'r', encoding='utf-8') as f:
+                settings = json.load(f)
+        return jsonify(settings)
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+    
+    
 def calculate_indicators(df, coin):
     """Calculate technical indicators and sentiment."""
     # SMA
@@ -433,16 +471,34 @@ def calculate_risk_reward(current_price, take_profit_pct, stop_loss_pct, recomme
         advice = "Tín hiệu trung tính. Nếu đã có thì giữ. Nếu chưa có thì chờ tín hiệu rõ ràng hơn."
     
     return {
-        'take_profit_price': round(take_profit_price, 2),
-        'stop_loss_price': round(stop_loss_price, 2),
-        'take_profit_pct': take_profit_pct,
-        'stop_loss_pct': stop_loss_pct,
-        'ratio': rr_ratio,
+        'take_profit_price': float(round(take_profit_price, 2)),
+        'stop_loss_price': float(round(stop_loss_price, 2)),
+        'take_profit_pct': float(take_profit_pct),
+        'stop_loss_pct': float(stop_loss_pct),
+        'ratio': float(rr_ratio),
         'adjusted_recommendation': adjusted_recommendation,
         'advice': advice,
         'color': color
     }
 
+@app.route('/save_settings', methods=['POST'])
+def save_settings():
+    try:
+        data = request.get_json()
+        # Chỉ lấy các trường cần thiết
+        settings = {
+            'symbol': data.get('symbol', 'BTCJPY'),
+            'interval': data.get('interval', '1h'),
+            'investment_amount': data.get('investment_amount', 1000000),
+            'take_profit': data.get('take_profit', 3.0),
+            'stop_loss': data.get('stop_loss', 1.5)
+        }
+        with open('user_settings.txt', 'w', encoding='utf-8') as f:
+            json.dump(settings, f, ensure_ascii=False, indent=2)
+        return jsonify({'success': True, 'settings': settings})
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+    
 @app.route('/')
 def index():
     return render_template('index.html')
@@ -451,24 +507,55 @@ def index():
 def analyze():
     try:
         data = request.get_json()
+    except Exception as e:
+        print(f"Error at get_json: {str(e)}")
+        return jsonify({'error': f'get_json: {str(e)}'}), 500
+
+    try:
         symbol = data['symbol']
+        interval = data.get('interval', '1h')
         take_profit_pct = data.get('take_profit', 5.0)
         stop_loss_pct = data.get('stop_loss', 3.0)
         investment_amount = data.get('investment_amount', 0.0)
-        
+        limit = get_limit_for_interval(interval)
+    except Exception as e:
+        print(f"Error at parse input: {str(e)}")
+        return jsonify({'error': f'parse input: {str(e)}'}), 500
+
+    try:
         coin = symbol.replace('JPY', '')
-        df = get_binance_data(symbol)
+        df = get_binance_data(symbol, interval=interval, limit=limit)
+    except Exception as e:
+        print(f"Error at get_binance_data: {str(e)}")
+        return jsonify({'error': f'get_binance_data: {str(e)}'}), 500
+
+    try:
         df = calculate_indicators(df, coin)
+    except Exception as e:
+        print(f"Error at calculate_indicators: {str(e)}")
+        return jsonify({'error': f'calculate_indicators: {str(e)}'}), 500
+
+    try:
         df = generate_signals(df)
-        
-        # Train model
+    except Exception as e:
+        print(f"Error at generate_signals: {str(e)}")
+        return jsonify({'error': f'generate_signals: {str(e)}'}), 500
+
+    try:
         model, scaler, model_info = train_trend_model(df)
+    except Exception as e:
+        print(f"Error at train_trend_model: {str(e)}")
+        return jsonify({'error': f'train_trend_model: {str(e)}'}), 500
+
+    try:
         trend, confidence, _ = predict_trend(df, model, scaler, model_info)
-        
+    except Exception as e:
+        print(f"Error at predict_trend: {str(e)}")
+        return jsonify({'error': f'predict_trend: {str(e)}'}), 500
+
+    try:
         latest = df.iloc[-1]
         current_price = latest['close']
-        
-        # Determine recommendation (updated thresholds for more signals)
         total_score = latest['total_score']
         if total_score >= 8:
             recommendation = "STRONG BUY"
@@ -480,125 +567,158 @@ def analyze():
             recommendation = "SELL"
         else:
             recommendation = "HOLD"
-        
-        # Calculate risk/reward analysis
+    except Exception as e:
+        print(f"Error at get latest/score/recommendation: {str(e)}")
+        return jsonify({'error': f'get latest/score/recommendation: {str(e)}'}), 500
+
+    try:
         risk_reward = calculate_risk_reward(
             current_price, take_profit_pct, stop_loss_pct, 
             recommendation, total_score, trend, confidence
         )
-        
-        # Calculate investment details if amount provided
+    except Exception as e:
+        print(f"Error at calculate_risk_reward: {str(e)}")
+        return jsonify({'error': f'calculate_risk_reward: {str(e)}'}), 500
+
+    try:
         investment_details = None
         if investment_amount > 0:
             coin_amount = investment_amount / current_price
             profit_amount = investment_amount * (take_profit_pct / 100)
             loss_amount = investment_amount * (stop_loss_pct / 100)
-            
             investment_details = {
-                'investment_amount': investment_amount,
-                'coin_amount': coin_amount,
-                'profit_amount': profit_amount,
-                'loss_amount': loss_amount,
-                'profit_price': current_price * (1 + take_profit_pct / 100),
-                'loss_price': current_price * (1 - stop_loss_pct / 100)
+                'investment_amount': float(investment_amount),
+                'coin_amount': float(coin_amount),
+                'profit_amount': float(profit_amount),
+                'loss_amount': float(loss_amount),
+                'profit_price': float(current_price * (1 + take_profit_pct / 100)),
+                'loss_price': float(current_price * (1 - stop_loss_pct / 100))
             }
-        
-        # Prepare chart data (add OBV to chart)
+    except Exception as e:
+        print(f"Error at investment_details: {str(e)}")
+        return jsonify({'error': f'investment_details: {str(e)}'}), 500
+
+    try:
         chart_data = {
             'timestamps': df['timestamp'].dt.strftime('%Y-%m-%d %H:%M').tail(50).tolist(),
-            'prices': df['close'].tail(50).tolist(),
-            'volumes': df['volume'].tail(50).tolist(),
-            'obv': df['obv'].tail(50).tolist(),
-            'sma_short': df['sma_short'].tail(50).tolist(),
-            'sma_long': df['sma_long'].tail(50).tolist(),
-            'bb_upper': df['bb_upper'].tail(50).tolist(),
-            'bb_lower': df['bb_lower'].tail(50).tolist(),
-            'rsi': df['rsi'].tail(50).tolist()
+            'prices': [float(x) for x in df['close'].tail(50).tolist()],
+            'volumes': [float(x) for x in df['volume'].tail(50).tolist()],
+            'obv': [float(x) for x in df['obv'].tail(50).tolist()],
+            'sma_short': [float(x) for x in df['sma_short'].tail(50).tolist()],
+            'sma_long': [float(x) for x in df['sma_long'].tail(50).tolist()],
+            'bb_upper': [float(x) for x in df['bb_upper'].tail(50).tolist()],
+            'bb_lower': [float(x) for x in df['bb_lower'].tail(50).tolist()],
+            'rsi': [float(x) for x in df['rsi'].tail(50).tolist()]
         }
-        
-        def pyfloat(val):
-            if isinstance(val, (np.floating,)):
-                return float(val)
-            return val
+    except Exception as e:
+        print(f"Error at chart_data: {str(e)}")
+        return jsonify({'error': f'chart_data: {str(e)}'}), 500
 
-        def pyfloat_list(lst):
-            return [pyfloat(x) for x in lst]
+    def to_native(obj):
+        # Recursively convert numpy floats/ints to Python native types in dicts/lists/tuples
+        if isinstance(obj, dict):
+            return {k: to_native(v) for k, v in obj.items()}
+        elif isinstance(obj, list):
+            return [to_native(x) for x in obj]
+        elif isinstance(obj, tuple):
+            return tuple(to_native(x) for x in obj)
+        elif isinstance(obj, (np.floating, float)):
+            return float(obj)
+        elif isinstance(obj, (np.integer, int)):
+            return int(obj)
+        else:
+            return obj
 
-        safe_chart_data = {k: pyfloat_list(v) if isinstance(v, list) else v for k, v in chart_data.items()}
-        safe_risk_reward = {k: pyfloat(v) if isinstance(v, (float, np.floating)) else v for k, v in risk_reward.items()}
-        safe_investment_details = {k: pyfloat(v) if isinstance(v, (float, np.floating)) else v for k, v in investment_details.items()} if investment_details else None
-        safe_indicators = {k: pyfloat(v) if isinstance(v, (float, np.floating)) else v for k, v in {
-            'rsi': round(latest['rsi'], 2),
-            'rsi_lag1': round(latest['rsi_lag1'], 2) if not pd.isna(latest['rsi_lag1']) else 0,
-            'macd': round(latest['macd'], 4),
-            'signal_line': round(latest['signal_line'], 4),
-            'bb_upper': round(latest['bb_upper'], 2),
-            'bb_lower': round(latest['bb_lower'], 2),
-            'support': round(latest['support'], 2),
-            'resistance': round(latest['resistance'], 2),
-            'momentum': round(latest['momentum'], 2),
-            'obv': round(latest['obv'], 2),
-            'stoch_k': round(latest['stoch_k'], 2),
-            'stoch_d': round(latest['stoch_d'], 2),
-            'williams_r': round(latest['williams_r'], 2),
-            'roc': round(latest['roc'], 2),
-            'cci': round(latest['cci'], 2),
-            'adx': round(latest['adx'], 2) if not pd.isna(latest['adx']) else 0,
-            'sentiment': round(latest['sentiment'], 2),
-            'volume_trend': 'Increasing' if latest['volume_trend'] == 1 else 'Stable/Decreasing'
-        }.items()}
+    try:
+        safe_chart_data = to_native(chart_data)
+        safe_risk_reward = to_native(risk_reward)
+        safe_investment_details = to_native(investment_details) if investment_details else None
+        def safe_float(val, ndigits=2, default=0.0):
+            try:
+                if pd.isna(val) or val is None:
+                    return default
+                return float(round(float(val), ndigits))
+            except Exception:
+                return default
 
+        safe_indicators = to_native({
+            'rsi': safe_float(latest.get('rsi'), 2),
+            'rsi_lag1': safe_float(latest.get('rsi_lag1'), 2),
+            'macd': safe_float(latest.get('macd'), 4),
+            'signal_line': safe_float(latest.get('signal_line'), 4),
+            'bb_upper': safe_float(latest.get('bb_upper'), 2),
+            'bb_lower': safe_float(latest.get('bb_lower'), 2),
+            'support': safe_float(latest.get('support'), 2),
+            'resistance': safe_float(latest.get('resistance'), 2),
+            'momentum': safe_float(latest.get('momentum'), 2),
+            'obv': safe_float(latest.get('obv'), 2),
+            'stoch_k': safe_float(latest.get('stoch_k'), 2),
+            'stoch_d': safe_float(latest.get('stoch_d'), 2),
+            'williams_r': safe_float(latest.get('williams_r'), 2),
+            'roc': safe_float(latest.get('roc'), 2),
+            'cci': safe_float(latest.get('cci'), 2),
+            'adx': safe_float(latest.get('adx'), 2),
+            'sentiment': safe_float(latest.get('sentiment'), 2),
+            'volume_trend': 'Increasing' if latest.get('volume_trend', 0) == 1 else 'Stable/Decreasing'
+        })
+    except Exception as e:
+        print(f"Error at indicators/safe_float: {str(e)}")
+        return jsonify({'error': f'indicators/safe_float: {str(e)}'}), 500
+
+    try:
         analysis_result = {
-            'symbol': symbol,
-            'current_price': pyfloat(round(current_price, 2)),
-            'recommendation': recommendation,
-            'trend_prediction': trend,
-            'confidence': pyfloat(round(confidence, 2)),
+            'symbol': str(symbol),
+            'current_price': float(round(float(current_price), 2)),
+            'recommendation': str(recommendation),
+            'trend_prediction': str(trend),
+            'confidence': float(round(float(confidence), 2)),
             'signal_score': int(total_score),
             'risk_reward': safe_risk_reward,
             'investment_details': safe_investment_details,
             'indicators': safe_indicators,
-            'model_info': model_info if model_info else {'accuracy': 0, 'type': 'Unknown'},
+            'model_info': to_native(model_info) if model_info else {'accuracy': 0, 'type': 'Unknown'},
             'chart_data': safe_chart_data,
             'last_timestamp': str(latest['timestamp']) if 'timestamp' in latest else None
         }
-        
+        analysis_result = to_native(analysis_result)
         return jsonify(analysis_result)
-        
     except Exception as e:
-        return jsonify({'error': str(e)}), 500
+        print(f"Error at jsonify/return: {str(e)}")
+        return jsonify({'error': f'jsonify/return: {str(e)}'}), 500
 
 @app.route('/suggest_best_pairs', methods=['POST'])
 def suggest_best_pairs():
     try:
         data = request.get_json()
+        interval = data.get('interval', '1h')
         take_profit_pct = data.get('take_profit', 5.0)
         stop_loss_pct = data.get('stop_loss', 3.0)
         investment_amount = data.get('investment_amount', 0.0)
-        
+        limit = get_limit_for_interval(interval)
+
         # List of all available trading pairs
         pairs = [
             'BTCJPY', 'ETHJPY', 'XRPJPY', 'ADAJPY', 'SOLJPY',
             'MATICJPY', 'LINKJPY', 'XLMJPY', 'SUIJPY'
         ]
-        
+
         suggestions = []
-        
+
         for symbol in pairs:
             try:
                 coin = symbol.replace('JPY', '')
-                df = get_binance_data(symbol)
+                df = get_binance_data(symbol, interval=interval, limit=limit)
                 df = calculate_indicators(df, coin)
                 df = generate_signals(df)
-                
+
                 # Train model
                 model, scaler, model_info = train_trend_model(df)
                 trend, confidence, _ = predict_trend(df, model, scaler, model_info)
-                
+
                 latest = df.iloc[-1]
                 current_price = latest['close']
                 total_score = latest['total_score']
-                
+
                 # Determine recommendation
                 if total_score >= 8:
                     recommendation = "STRONG BUY"
@@ -610,13 +730,13 @@ def suggest_best_pairs():
                     recommendation = "SELL"
                 else:
                     recommendation = "HOLD"
-                
+
                 # Calculate risk/reward analysis
                 risk_reward = calculate_risk_reward(
                     current_price, take_profit_pct, stop_loss_pct, 
                     recommendation, total_score, trend, confidence
                 )
-                
+
                 # Calculate composite score for ranking
                 # Prioritize BUY signals with high confidence and good risk/reward
                 composite_score = 0
@@ -631,7 +751,7 @@ def suggest_best_pairs():
                     composite_score = total_score + confidence/20  # Lower score for HOLD
                 else:
                     composite_score = -100  # Exclude SELL signals
-                
+
                 suggestion = {
                     'symbol': symbol,
                     'current_price': round(current_price, 2),
@@ -643,9 +763,9 @@ def suggest_best_pairs():
                     'risk_reward': risk_reward,
                     'model_accuracy': round(model_info['accuracy'] * 100, 1) if model_info else 0
                 }
-                
+
                 suggestions.append(suggestion)
-                
+
             except Exception as e:
                 print(f"Error analyzing {symbol}: {str(e)}")
                 continue

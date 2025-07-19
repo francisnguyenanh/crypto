@@ -342,11 +342,42 @@
             margin: 20px 0;
             box-shadow: 0 5px 15px rgba(0, 0, 0, 0.1);
         }
-        
+        .chart-container .chart-desktop {
+            display: block;
+        }
+        .chart-container .chart-mobile {
+            display: none;
+        }
         @media (min-width: 768px) {
             .chart-container {
-                padding: 25px;
-                margin: 30px 0;
+                padding: 35px;
+                margin: 40px 0;
+            }
+            .chart-container .chart-desktop {
+                display: block;
+            }
+            .chart-container .chart-mobile {
+                display: none;
+            }
+            #priceChart {
+                height: 400px !important;
+                min-height: 350px !important;
+            }
+            #indicatorChart {
+                height: 350px !important;
+                min-height: 300px !important;
+            }
+        }
+        @media (max-width: 767px) {
+            .chart-container .chart-desktop {
+                display: none !important;
+            }
+            .chart-container .chart-mobile {
+                display: block !important;
+            }
+            #indicatorChart {
+                height: 350px !important;
+                min-height: 250px !important;
             }
         }
         
@@ -426,7 +457,7 @@
         <div class="main-container">            
             <div class="trading-pair-selector">
                 <div class="row align-items-end mb-4">
-                    <div class="col-md-6 mb-2 mb-md-0">
+                    <div class="col-md-4 mb-2 mb-md-0">
                         <select class="form-select form-control" id="tradingPairSelect">
                             <option value="">-- // --</option>
                             <option value="BTCJPY">BTC/JPY - Bitcoin</option>
@@ -434,13 +465,19 @@
                             <option value="XRPJPY">XRP/JPY - Ripple</option>
                             <option value="ADAJPY">ADA/JPY - Cardano</option>
                             <option value="SOLJPY">SOL/JPY - Solana</option>
-                            <!-- Removed DOT, AVAX -->
                             <option value="MATICJPY">MATIC/JPY - Polygon</option>
                             <option value="LINKJPY">LINK/JPY - Chainlink</option>
-                            <!-- Removed LTC -->
                             <option value="XLMJPY">XLM/JPY - Stellar</option>
-                            <!-- Removed ATOM, NEAR, ALGO -->
                             <option value="SUIJPY">SUI/JPY - Sui</option>
+                        </select>
+                    </div>
+                    <div class="col-md-2 mb-2 mb-md-0">
+                        <select class="form-select form-control" id="intervalSelect">
+                            <option value="15m">15m</option>
+                            <option value="30m" selected>30m</option>
+                            <option value="1h">1h</option>
+                            <option value="4h">4h</option>
+                            <option value="1d">1d</option>
                         </select>
                     </div>
                     <div class="col-md-6 text-md-end text-center mt-3 mt-md-0">
@@ -518,23 +555,92 @@
         let indicatorChart = null;
         let currentPrice = 0;
 
-        // Disable Analyze button by default
+
+        // Lưu settings khi user thay đổi
+        function saveUserSettings() {
+            const symbol = document.getElementById('tradingPairSelect') ? document.getElementById('tradingPairSelect').value : '';
+            const interval = document.getElementById('intervalSelect') ? document.getElementById('intervalSelect').value : '1h';
+            const investmentAmount = getInvestmentAmountRaw();
+            const takeProfit = parseFloat(document.getElementById('takeProfit').value) || 3.0;
+            const stopLoss = parseFloat(document.getElementById('stopLoss').value) || 1.5;
+            fetch('/save_settings', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    symbol: symbol,
+                    interval: interval,
+                    investment_amount: investmentAmount,
+                    take_profit: takeProfit,
+                    stop_loss: stopLoss
+                })
+            });
+        }
+
+
+        // Load user settings từ backend khi load trang
         document.addEventListener('DOMContentLoaded', function() {
-            const analyzeBtn = document.querySelector('.analyze-btn.me-2');
-            analyzeBtn.disabled = true;
+            fetch('/get_settings')
+                .then(res => res.json())
+                .then(settings => {
+                    // Set các giá trị vào input nếu có
+                    if (settings.symbol && document.getElementById('tradingPairSelect')) {
+                        document.getElementById('tradingPairSelect').value = settings.symbol;
+                        selectedPair = settings.symbol;
+                    }
+                    if (settings.interval && document.getElementById('intervalSelect')) {
+                        document.getElementById('intervalSelect').value = settings.interval;
+                    }
+                    if (settings.investment_amount && document.getElementById('investmentAmount')) {
+                        document.getElementById('investmentAmount').value = Number(settings.investment_amount).toLocaleString('en-US');
+                    }
+                    if (settings.take_profit && document.getElementById('takeProfit')) {
+                        document.getElementById('takeProfit').value = settings.take_profit;
+                    }
+                    if (settings.stop_loss && document.getElementById('stopLoss')) {
+                        document.getElementById('stopLoss').value = settings.stop_loss;
+                    }
+                    // Enable analyze button nếu đã chọn cặp
+                    const analyzeBtn = document.querySelector('.analyze-btn.me-2');
+                    if (selectedPair && analyzeBtn) analyzeBtn.disabled = false;
+                    calculateProfitLoss();
+                });
         });
 
         // Handle pair selection from dropdown
-        document.getElementById('tradingPairSelect').addEventListener('change', function() {
-            selectedPair = this.value;
-            const analyzeBtn = document.querySelector('.analyze-btn.me-2');
-            if (selectedPair) {
-                analyzeBtn.disabled = false;
-                calculateProfitLoss();
-            } else {
-                analyzeBtn.disabled = true;
-            }
-        });
+        if (document.getElementById('tradingPairSelect')) {
+            document.getElementById('tradingPairSelect').addEventListener('change', function() {
+                selectedPair = this.value;
+                const analyzeBtn = document.querySelector('.analyze-btn.me-2');
+                if (selectedPair) {
+                    if (analyzeBtn) analyzeBtn.disabled = false;
+                    calculateProfitLoss();
+                } else {
+                    if (analyzeBtn) analyzeBtn.disabled = true;
+                }
+                saveUserSettings();
+            });
+        }
+
+        // Handle interval select (nếu có)
+        if (document.getElementById('intervalSelect')) {
+            document.getElementById('intervalSelect').addEventListener('change', function() {
+                saveUserSettings();
+            });
+        }
+
+        // Lưu settings khi thay đổi vốn, lãi, lỗ
+        if (document.getElementById('investmentAmount')) {
+            document.getElementById('investmentAmount').addEventListener('change', saveUserSettings);
+            document.getElementById('investmentAmount').addEventListener('blur', saveUserSettings);
+        }
+        if (document.getElementById('takeProfit')) {
+            document.getElementById('takeProfit').addEventListener('change', saveUserSettings);
+            document.getElementById('takeProfit').addEventListener('blur', saveUserSettings);
+        }
+        if (document.getElementById('stopLoss')) {
+            document.getElementById('stopLoss').addEventListener('change', saveUserSettings);
+            document.getElementById('stopLoss').addEventListener('blur', saveUserSettings);
+        }
 
         function formatInvestmentAmount() {
             let input = document.getElementById('investmentAmount');
@@ -751,9 +857,11 @@
             document.getElementById('recommendation-section').innerHTML = `
                 <div class="recommendation-card ${recClass}">
                     <h2><i class="fas fa-bullseye"></i> ${data.risk_reward.adjusted_recommendation || data.recommendation}</h2>
-                    <h5>Dữ liệu mới nhất: ${localTime}</h5>
+                    
                     <h4>Giá hiện tại: ¥${new Intl.NumberFormat('ja-JP').format(data.current_price)}</h4>
+                    <h5><strong>Số coin có thể mua:</strong> ${Number((investmentAmount / data.current_price).toFixed(6)).toLocaleString('en-US')} ${data.symbol.replace('JPY', '')}</h5>
                     <h5>Điểm tín hiệu: ${data.signal_score}</h5>
+                    <h5>Dữ liệu mới nhất: ${localTime}</h5>
                     ${data.risk_reward.advice ? `
                         <div class="alert alert-info mt-3">
                             <h6><i class="fas fa-info-circle"></i> Lời khuyên cụ thể</h6>
@@ -761,9 +869,6 @@
                         </div>
                     ` : ''}
                     ${investmentAmount > 0 ? `
-                        <div class="risk-reward-info mt-3">
-                            <p><strong>Số coin có thể mua:</strong> ${Number((investmentAmount / data.current_price).toFixed(6)).toLocaleString('en-US')} ${data.symbol.replace('JPY', '')}</p>
-                        </div>
                     ` : ''}
                 </div>
             `;
@@ -861,28 +966,37 @@
         function displayCharts(chartData, symbol) {
             document.getElementById('charts-section').innerHTML = `
                 <div class="chart-container">
-                    <h4 class="text-center mb-3 mb-md-4"><i class="fas fa-chart-line"></i> Price Chart with Technical Analysis</h4>
-                    <div style="position: relative; height: 300px;">
-                        <canvas id="priceChart"></canvas>
+                    <div class="chart-desktop">
+                        <h4 class="text-center mb-3 mb-md-4"><i class="fas fa-chart-line"></i> Price Chart with Technical Analysis</h4>
+                        <div style="position: relative; height: 400px; min-height: 350px;">
+                            <canvas id="priceChart"></canvas>
+                        </div>
                     </div>
                 </div>
                 <div class="chart-container">
                     <h4 class="text-center mb-3 mb-md-4"><i class="fas fa-chart-area"></i> RSI, Volume & OBV</h4>
-                    <div style="position: relative; height: 250px;">
+                    <div class="chart-mobile"></div>
+                    <div style="position: relative; height: 350px; min-height: 250px;">
                         <canvas id="indicatorChart"></canvas>
                     </div>
                 </div>
             `;
 
-            // Convert UTC timestamps to local time strings
+            // Convert UTC timestamps to JST (UTC+9) time strings
             const localLabels = chartData.timestamps.map(ts => {
-                // Try to parse as ISO string or as timestamp
                 let d = (typeof ts === 'number') ? new Date(ts) : new Date(ts);
                 if (isNaN(d.getTime())) {
-                    // fallback: try parsing as seconds
                     d = new Date(Number(ts) * 1000);
                 }
-                return d.toLocaleString();
+                // Add 9 hours for JST
+                d = new Date(d.getTime() + 9 * 60 * 60 * 1000);
+                // Format as yyyy/MM/dd HH:mm (24h)
+                const year = d.getFullYear();
+                const month = (d.getMonth() + 1).toString().padStart(2, '0');
+                const day = d.getDate().toString().padStart(2, '0');
+                const hour = d.getHours().toString().padStart(2, '0');
+                const minute = d.getMinutes().toString().padStart(2, '0');
+                return `${year}/${month}/${day} ${hour}:${minute}`;
             });
 
             // Destroy existing charts
