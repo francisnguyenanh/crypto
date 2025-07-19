@@ -94,6 +94,13 @@ def get_settings():
     
 def calculate_indicators(df, coin, interval='1h'):
     """Tính toán chỉ báo kỹ thuật, điều chỉnh window theo interval."""
+    # Kiểm tra DataFrame rỗng hoặc thiếu cột 'close'
+    if df is None or df.empty:
+        print(f"[calculate_indicators] DataFrame is None or empty. df: {df}")
+        return df
+    if 'close' not in df.columns:
+        print(f"[calculate_indicators] DataFrame missing 'close' column. Columns: {df.columns}")
+        return df
     # Điều chỉnh window dựa trên interval
     rsi_window = 7 if interval in ['15m', '30m'] else 14
     sma_short_window = 5 if interval in ['15m', '30m'] else 10
