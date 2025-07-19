@@ -847,6 +847,9 @@ def analyze():
         return jsonify({'error': f'predict_trend: {str(e)}'}), 500
 
     try:
+        # Kiểm tra nếu DataFrame rỗng hoặc không đủ dòng
+        if df is None or len(df) == 0:
+            return jsonify({'error': 'Không đủ dữ liệu sau khi tính toán indicators/signals.'}), 400
         latest = df.iloc[-1]
         current_price = latest['close']
         total_score = latest['total_score']
